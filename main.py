@@ -67,9 +67,9 @@ def get_affiliate_link(original_url):
         pass
     return original_url
 
-# שינוי שמות ה-Session ל-v2 כדי לפתור שגיאות חיבור ישנות
-user_client = TelegramClient('user_session_v2', API_ID, API_HASH)
-bot_client = TelegramClient('bot_session_v2', API_ID, API_HASH)
+# שמות ה-Session הותאמו לקבצים שהעלית ל-GitHub (בלי _v2)
+user_client = TelegramClient('user_session', API_ID, API_HASH)
+bot_client = TelegramClient('bot_session', API_ID, API_HASH)
 
 conn = sqlite3.connect('deals_memory.db')
 cursor = conn.cursor()
@@ -110,15 +110,14 @@ async def handler(event):
                     os.remove(path)
 
 async def main():
-    # הפעלת מנגנון השארות בחיים (Flask)
+    # הפעלת מנגנון השארות בחיים
     keep_alive()
     
-    # התחברות לטלגרם
+    # התחברות לטלגרם - ישתמש בקבצי ה-Session שהעלית
     await user_client.start()
     await bot_client.start(bot_token=BOT_TOKEN)
     print("🚀 המערכת באוויר (מצב ענן) ומאזינה...")
     
-    # הרצה לנצח
     await user_client.run_until_disconnected()
 
 if __name__ == '__main__':
