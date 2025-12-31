@@ -10,9 +10,11 @@ def keep_alive(): t = Thread(target=run_flask) t.daemon = True t.start()
 
 if sys.stdout.encoding != 'utf-8': sys.stdout.reconfigure(encoding='utf-8')
 
-print("--- FILES IN SERVER ---") try: for file in os.listdir('.'): print(file) except Exception as e: print(f"Error listing files: {e}") print("----------------------------")
+print("--- FILES IN SERVER ---") try: for file in os.listdir('.'): print(file) except Exception as e: print(f"Error: {e}") print("----------------------------")
 
-API_ID = 33305115 API_HASH = 'b3d96cbe0190406947efc8a0da83b81c' BOT_TOKEN = '8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU' SOURCE_CHANNELS = [-1003197498066] DESTINATION_CHANNEL = -1003406117560
+API_ID = 33305115 API_HASH = 'b3d96cbe0190406947efc8a0da83b81c' BOT_TOKEN = '8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU'
+
+SOURCE_CHANNELS = [-1003197498066] DESTINATION_CHANNEL = -1003406117560
 
 APP_KEY = '524232' APP_SECRET = 'kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye' TRACKING_ID = 'default'
 
@@ -22,8 +24,8 @@ user_client = TelegramClient('user_session', API_ID, API_HASH) bot_client = Tele
 
 conn = sqlite3.connect('deals_memory.db', check_same_thread=False) cursor = conn.cursor() cursor.execute('CREATE TABLE IF NOT EXISTS sent_deals (msg_id TEXT)') conn.commit()
 
-@user_client.on(events.NewMessage(chats=SOURCE_CHANNELS)) async def handler(event): msg_text = event.message.message or "" urls = re.findall(r'((?:https?://)?(?:s.clickhttps://www.google.com/search?q=.aliexpress.com|[\w.]+https://www.google.com/search?q=.aliexpress.com)\S+)', msg_text) if urls: msg_key = f"{event.chat_id}_{event.id}" cursor.execute('SELECT * FROM sent_deals WHERE msg_id=?', (msg_key,)) if cursor.fetchone() is None: new_text = msg_text for url in urls: aff_link = get_affiliate_link(url) new_text = new_text.replace(url, aff_link) path = None if event.message.media: path = await event.download_media() try: await bot_client.send_file(DESTINATION_CHANNEL, path if path else None, caption=new_text, formatting_entities=event.message.entities) cursor.execute('INSERT INTO sent_deals VALUES (?)', (msg_key,)) conn.commit() print("פורסם בהצלחה!") except Exception as e: print(f"שגיאה: {e}") finally: if path and os.path.exists(path): os.remove(path)
+@user_client.on(events.NewMessage(chats=SOURCE_CHANNELS)) async def handler(event): msg_text = event.message.message or "" urls = re.findall(r'((?:https?://)?(?:s.clickhttps://www.google.com/search?q=.aliexpress.com|[\w.]+https://www.google.com/search?q=.aliexpress.com)\S+)', msg_text) if urls: msg_key = f"{event.chat_id}_{event.id}" cursor.execute('SELECT * FROM sent_deals WHERE msg_id=?', (msg_key,)) if cursor.fetchone() is None: new_text = msg_text for url in urls: aff_link = get_affiliate_link(url) new_text = new_text.replace(url, aff_link) path = None if event.message.media: path = await event.download_media() try: await bot_client.send_file(DESTINATION_CHANNEL, path if path else None, caption=new_text, formatting_entities=event.message.entities) cursor.execute('INSERT INTO sent_deals VALUES (?)', (msg_key,)) conn.commit() print("Published!") except Exception as e: print(f"Error: {e}") finally: if path and os.path.exists(path): os.remove(path)
 
-async def main(): keep_alive() print("מנסה להתחבר...") await user_client.connect() if not await user_client.is_user_authorized(): print("שגיאה: קבצי ה-session לא מזוהים!") return await bot_client.start(bot_token=BOT_TOKEN) print("המערכת באוויר ומאזינה...") await user_client.run_until_disconnected()
+async def main(): keep_alive() print("Connecting...") await user_client.connect() if not await user_client.is_user_authorized(): print("CRITICAL ERROR: No session!") return await bot_client.start(bot_token=BOT_TOKEN) print("🚀 Bot is LIVE!") await user_client.run_until_disconnected()
 
-if name == 'main': try: asyncio.run(main()) except Exception as e: print(f"קריסה: {e}")
+if name == 'main': try: asyncio.run(main()) except Exception as e: print(f"Crash: {e}")
