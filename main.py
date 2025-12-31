@@ -39,7 +39,7 @@ DESTINATION_CHANNEL = -1003406117560
 APP_KEY = '524232'
 APP_SECRET = 'kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye'
 TRACKING_ID = 'default'
-ALI_ENDPOINT = "[https://api-sg.aliexpress.com/sync](https://www.google.com/search?q=https://api-sg.aliexpress.com/sync)"
+ALI_ENDPOINT = "[https://api-sg.aliexpress.com/sync](https://api-sg.aliexpress.com/sync)"
 
 def get_affiliate_link(url):
 try:
@@ -66,8 +66,8 @@ except Exception:
 pass
 return url
 
-user_client = TelegramClient('user_session', API_ID, API_HASH)
-bot_client = TelegramClient('bot_session', API_ID, API_HASH)
+user_client = TelegramClient('user_session_v2', API_ID, API_HASH)
+bot_client = TelegramClient('bot_session_v2', API_ID, API_HASH)
 
 conn = sqlite3.connect('deals_memory.db', check_same_thread=False)
 cursor = conn.cursor()
