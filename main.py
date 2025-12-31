@@ -7,8 +7,24 @@ import time
 import hashlib
 import sys
 from telethon import TelegramClient, events
+from flask import Flask
+from threading import Thread
 
-# הגדרת מקודד לעברית כדי למנוע סימני שאלה ב-CMD
+# --- הגדרות שרת להישארות בחיים ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is alive!"
+
+def run_flask():
+    app.run(host='0.0.0.0', port=10000)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.start()
+
+# הגדרת מקודד לעברית
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
@@ -17,7 +33,6 @@ API_ID = 33305115
 API_HASH = 'b3d96cbe0190406947efc8a0da83b81c'
 BOT_TOKEN = '8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU'
 
-# ערוץ המקור מהתמונה שלך
 SOURCE_CHANNELS = [-1003197498066] 
 DESTINATION_CHANNEL = -1003406117560 
 
@@ -27,9 +42,6 @@ APP_SECRET = 'kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye'
 TRACKING_ID = 'default' 
 
 def get_affiliate_link(original_url):
-    if not original_url.startswith('http'):
-        original_url = 'https://' + original_url
-    
     try:
         endpoint = "https://gw.api.alibaba.com/openapi/param2/1/aliexpress.open/api.getPromotionLinks/"
         params = {
@@ -44,7 +56,6 @@ def get_affiliate_link(original_url):
         
         response = requests.get(endpoint + APP_KEY, params=params)
         data = response.json()
-        
         res_key = "aliexpress_open_api_getPromotionLinks_response"
         if res_key in data:
             result = data[res_key].get("resp_result", {}).get("result", {})
@@ -58,7 +69,6 @@ def get_affiliate_link(original_url):
 user_client = TelegramClient('user_session', API_ID, API_HASH)
 bot_client = TelegramClient('bot_session', API_ID, API_HASH)
 
-# יצירת זיכרון לבוט שלא ישלח פעמיים
 conn = sqlite3.connect('deals_memory.db')
 cursor = conn.cursor()
 cursor.execute('CREATE TABLE IF NOT EXISTS sent_deals (msg_id TEXT)')
@@ -67,8 +77,6 @@ conn.commit()
 @user_client.on(events.NewMessage(chats=SOURCE_CHANNELS))
 async def handler(event):
     msg_text = event.message.message or ""
-    
-    # חיפוש קישורים משופר - מוצא גם s.click.aliexpress.com
     urls = re.findall(r'((?:https?://)?(?:s\.click\.aliexpress\.com|[\w\.]+\.aliexpress\.com)\S+)', msg_text)
     
     if urls:
@@ -76,14 +84,12 @@ async def handler(event):
         cursor.execute('SELECT * FROM sent_deals WHERE msg_id=?', (msg_key,))
         
         if cursor.fetchone() is None:
-            print(f"📢 מצאתי דיל חדש בערוץ המקור! מתחיל עיבוד...")
+            print(f"📢 דיל חדש זוהה!")
             new_text = msg_text
             for url in urls:
-                print(f"🔗 הופך קישור לקישור שותפים: {url}")
                 aff_link = get_affiliate_link(url)
                 new_text = new_text.replace(url, aff_link)
             
-            # הורדת תמונה/וידאו ושליחה לערוץ שלך
             path = await event.download_media()
             try:
                 await bot_client.send_file(
@@ -94,18 +100,20 @@ async def handler(event):
                 )
                 cursor.execute('INSERT INTO sent_deals VALUES (?)', (msg_key,))
                 conn.commit()
-                print("✅ הדיל פורסם בהצלחה בערוץ שלך!")
+                print("✅ פורסם בהצלחה!")
             except Exception as e:
-                print(f"❌ שגיאה בפרסום: {e}")
+                print(f"❌ שגיאה: {e}")
             finally:
                 if path and os.path.exists(path):
                     os.remove(path)
 
 async def main():
+    # הפעלת מנגנון השארות בחיים
+    keep_alive()
+    
     await user_client.start()
     await bot_client.start(bot_token=BOT_TOKEN)
-    print("🚀 המערכת באוויר ומאזינה לערוץ: דילים סודיים בעליאקספרס")
-    print("👀 ברגע שיעלה שם פוסט חדש, הוא יופיע אצלך תוך שניות.")
+    print("🚀 המערכת באוויר (מצב ענן) ומאזינה...")
     await user_client.run_until_disconnected()
 
 if __name__ == '__main__':
