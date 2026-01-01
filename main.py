@@ -30,7 +30,7 @@ def keep_alive():
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
-# הדפסה שתעזור לנו לראות אם הקבצים קיימים בשרת
+# בדיקה אילו קבצים קיימים בשרת
 print("Files found in server:", os.listdir())
 
 API_ID = 33305115
@@ -69,7 +69,7 @@ def get_affiliate_link(url):
         pass
     return url
 
-# שימוש בשמות קבצים ללא הסיומת .session כי טלגרם מוסיף אותה אוטומטית
+# תיקון שמות ה-session: Telethon מוסיפה .session לבד
 user_client = TelegramClient('user_session_v2', API_ID, API_HASH)
 bot_client = TelegramClient('bot_session_v2', API_ID, API_HASH)
 
@@ -104,6 +104,7 @@ async def handler(event):
 
 async def main():
     keep_alive()
+    # חיבור ללא בקשת קוד כי הקבצים כבר שם
     await user_client.start()
     await bot_client.start(bot_token=BOT_TOKEN)
     print("🚀 LIVE!")
