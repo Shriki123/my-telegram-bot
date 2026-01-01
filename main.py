@@ -36,7 +36,9 @@ print("Files found in server:", os.listdir())
 API_ID = 33305115
 API_HASH = 'b3d96cbe0190406947efc8a0da83b81c'
 BOT_TOKEN = '8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU'
-SOURCE_CHANNELS = [-1003197498066]
+
+# עדכון ה-ID של ערוץ המקור החדש שלך
+SOURCE_CHANNELS = [-1003648516921] 
 DESTINATION_CHANNEL = -1003406117560
 
 APP_KEY = '524232'
@@ -69,7 +71,6 @@ def get_affiliate_link(url):
         pass
     return url
 
-# תיקון שמות ה-session: Telethon מוסיפה .session לבד
 user_client = TelegramClient('user_session_v2', API_ID, API_HASH)
 bot_client = TelegramClient('bot_session_v2', API_ID, API_HASH)
 
@@ -81,33 +82,35 @@ conn.commit()
 @user_client.on(events.NewMessage(chats=SOURCE_CHANNELS))
 async def handler(event):
     msg_text = event.message.message or ""
+    # מחפש קישורים של אלי-אקספרס
     urls = re.findall(r'(https?://(?:s\.click\.aliexpress\.com|www\.aliexpress\.com|a\.aliexpress\.com)/\S+)', msg_text)
     if urls:
         msg_key = f"{event.chat_id}_{event.id}"
         cursor.execute('SELECT * FROM sent_deals WHERE msg_id=?', (msg_key,))
         if cursor.fetchone() is None:
+            print(f"🔎 Found deal in source channel!")
             new_text = msg_text
             for url in urls:
                 aff_link = get_affiliate_link(url)
                 new_text = new_text.replace(url, aff_link)
+            
             path = await event.download_media() if event.message.media else None
             try:
                 await bot_client.send_file(DESTINATION_CHANNEL, path, caption=new_text, formatting_entities=event.message.entities)
                 cursor.execute('INSERT INTO sent_deals VALUES (?)', (msg_key,))
                 conn.commit()
-                print("✅ Published!")
+                print("✅ Published to destination!")
             except Exception as e:
-                print(f"Error: {e}")
+                print(f"❌ Error sending: {e}")
             finally:
                 if path and os.path.exists(path):
                     os.remove(path)
 
 async def main():
     keep_alive()
-    # חיבור ללא בקשת קוד כי הקבצים כבר שם
     await user_client.start()
     await bot_client.start(bot_token=BOT_TOKEN)
-    print("🚀 LIVE!")
+    print("🚀 LIVE and listening to your new channel!")
     await user_client.run_until_disconnected()
 
 if __name__ == '__main__':
