@@ -37,8 +37,8 @@ API_ID = 33305115
 API_HASH = 'b3d96cbe0190406947efc8a0da83b81c'
 BOT_TOKEN = '8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU'
 
-# עדכון ה-ID של ערוץ המקור החדש שלך
-SOURCE_CHANNELS = [-1003648516921] 
+# חזרה לערוץ המקור האמיתי
+SOURCE_CHANNELS = [-1003197498066] 
 DESTINATION_CHANNEL = -1003406117560
 
 APP_KEY = '524232'
@@ -88,7 +88,7 @@ async def handler(event):
         msg_key = f"{event.chat_id}_{event.id}"
         cursor.execute('SELECT * FROM sent_deals WHERE msg_id=?', (msg_key,))
         if cursor.fetchone() is None:
-            print(f"🔎 Found deal in source channel!")
+            print(f"🔎 Found deal in real source channel!")
             new_text = msg_text
             for url in urls:
                 aff_link = get_affiliate_link(url)
@@ -110,7 +110,7 @@ async def main():
     keep_alive()
     await user_client.start()
     await bot_client.start(bot_token=BOT_TOKEN)
-    print("🚀 LIVE and listening to your new channel!")
+    print("🚀 LIVE and listening to the real source channel!")
     await user_client.run_until_disconnected()
 
 if __name__ == '__main__':
