@@ -1,6 +1,9 @@
 import asyncio
 import os
 import re
+import requests
+import time
+import hashlib
 from telethon import TelegramClient, events
 from flask import Flask
 from threading import Thread
@@ -20,10 +23,39 @@ API_HASH = 'b3d96cbe0190406947efc8a0da83b81c'
 BOT_TOKEN = '8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU'
 DESTINATION_ID = -1003406117560
 
-# Source Channel IDs
-# 3197498066 = Deals Channel 1
-# 1261315667 = Deals Channel 2
+# AliExpress Affiliate Settings
+APP_KEY = '524232'
+APP_SECRET = 'kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye'
+TRACKING_ID = 'default' # You can change 'default' to your specific tracking ID if you have one
+
+# Source Channels
 SOURCE_CHANNELS = [3197498066, 1261315667]
+
+def get_affiliate_link(url):
+    try:
+        # Clean the URL from existing parameters
+        clean_url = url.split('?')[0]
+        params = {
+            "method": "aliexpress.social.generate.affiliate.link",
+            "app_key": APP_KEY,
+            "tracking_id": TRACKING_ID,
+            "source_value": clean_url,
+            "timestamp": str(int(time.time() * 1000)),
+            "format": "json",
+            "v": "2.0",
+            "sign_method": "md5"
+        }
+        # Generate API signature
+        query_string = "".join(f"{k}{v}" for k, v in sorted(params.items()))
+        sign_source = APP_SECRET + query_string + APP_SECRET
+        params["sign"] = hashlib.md5(sign_source.encode('utf-8')).hexdigest().upper()
+        
+        response = requests.get("https://api-sg.aliexpress.com/sync", params=params, timeout=10).json()
+        aff_url = response["aliexpress_social_generate_affiliate_link_response"]["result"]["affiliate_link"]
+        return aff_url
+    except Exception as e:
+        print(f"⚠️ Could not convert link, using original. Error: {e}")
+        return url
 
 user_client = TelegramClient('user_session_v2', API_ID, API_HASH)
 bot_client = TelegramClient('bot_session_v2', API_ID, API_HASH)
@@ -34,38 +66,38 @@ async def raw_handler(update):
         try:
             channel_id = getattr(update.message.peer_id, 'channel_id', None)
             
-            # Check if message is from one of the source channels
             if channel_id in SOURCE_CHANNELS:
                 msg = update.message
                 msg_text = msg.message or ""
-                print(f"🎯 Message detected from channel: {channel_id}")
                 
-                # Check for AliExpress links
-                if "aliexpress" in msg_text.lower():
-                    print("🔎 Link found. Downloading media and forwarding...")
+                # Regex to find any AliExpress link
+                urls = re.findall(r'(https?://(?:s\.click\.aliexpress\.com|www\.aliexpress\.com|a\.aliexpress\.com|aliexpress\.com)/\S+)', msg_text)
+                
+                if urls:
+                    print(f"🎯 Found {len(urls)} links in channel {channel_id}. Converting...")
+                    new_text = msg_text
+                    for url in urls:
+                        affiliate_link = get_affiliate_link(url)
+                        new_text = new_text.replace(url, affiliate_link)
+                    
                     path = await user_client.download_media(msg) if msg.media else None
-                    await bot_client.send_file(DESTINATION_ID, path, caption=msg_text)
+                    await bot_client.send_file(DESTINATION_ID, path, caption=new_text)
                     if path: 
                         os.remove(path)
-                    print("✅ Deal forwarded successfully!")
+                    print("✅ Deal forwarded with YOUR affiliate links!")
         except Exception as e:
-            print(f"❌ Error processing message: {e}")
+            print(f"❌ Error: {e}")
 
 async def main():
     keep_alive()
-    print(f"Current directory files: {os.listdir()}")
-    
     await user_client.connect()
     if not await user_client.is_user_authorized():
-        print("❌ Error: User not authorized! Check your session file.")
+        print("❌ Login required!")
         return
 
     await bot_client.start(bot_token=BOT_TOKEN)
-    
-    # Status message sent to your channel in English
-    await bot_client.send_message(DESTINATION_ID, "🚀 Bot is live and monitoring channels!")
-    print("🚀 Bot is connected and listening to both channels!")
-    
+    await bot_client.send_message(DESTINATION_ID, "🚀 Affiliate Bot is LIVE and making money!")
+    print("🚀 Running...")
     await user_client.run_until_disconnected()
 
 if __name__ == '__main__':
