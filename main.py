@@ -30,7 +30,8 @@ def keep_alive():
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
-print("Check files in server:", os.listdir())
+# הדפסה שתעזור לנו לראות אם הקבצים קיימים בשרת
+print("Files found in server:", os.listdir())
 
 API_ID = 33305115
 API_HASH = 'b3d96cbe0190406947efc8a0da83b81c'
@@ -68,6 +69,7 @@ def get_affiliate_link(url):
         pass
     return url
 
+# שימוש בשמות קבצים ללא הסיומת .session כי טלגרם מוסיף אותה אוטומטית
 user_client = TelegramClient('user_session_v2', API_ID, API_HASH)
 bot_client = TelegramClient('bot_session_v2', API_ID, API_HASH)
 
