@@ -18,36 +18,37 @@ BOT_TOKEN = '8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU'
 SOURCE_ID = -1003197498066
 DESTINATION_ID = -1003406117560
 
+# חשוב: שמות הקבצים חייבים להיות זהים לאלו שב-GitHub
 user_client = TelegramClient('user_session_v2', API_ID, API_HASH)
 bot_client = TelegramClient('bot_session_v2', API_ID, API_HASH)
 
 @user_client.on(events.NewMessage(chats=SOURCE_ID))
 async def handler(event):
+    print(f"📩 הודעה חדשה התקבלה בערוץ המקור!")
     msg_text = event.message.message or ""
-    print(f"📩 הודעה התקבלה: {msg_text[:50]}...") # הדפסה ללוג לבדיקה
     
-    # חיפוש קישור בצורה גמישה יותר
-    urls = re.findall(r'(https?://[^\s]+aliexpress\.com/[^\s]+)', msg_text)
-    
-    if urls:
-        print(f"🔎 נמצאו {len(urls)} קישורים. מעביר...")
+    # חיפוש קישור אליאקספרס (גם אם יש קופון אחריו)
+    if "aliexpress" in msg_text.lower():
+        print(f"🔎 נמצא קישור אליאקספרס. מעביר...")
         try:
-            # שליחה של ההודעה המקורית כמו שהיא
             await bot_client.send_message(DESTINATION_ID, msg_text, file=event.message.media)
-            print("✅ נשלח בהצלחה!")
+            print("✅ ההודעה הועברה בהצלחה!")
         except Exception as e:
             print(f"❌ שגיאה בשליחה: {e}")
+    else:
+        print("ℹ️ הודעה התקבלה אבל אין בה קישור אליאקספרס.")
 
 async def main():
     keep_alive()
-    await user_client.connect()
+    print(f"Files in server: {os.listdir()}") # מדפיס אילו קבצים הבוט רואה ב-Render
     
+    await user_client.connect()
     if not await user_client.is_user_authorized():
-        print("❌ שגיאה: המשתמש לא מחובר! Render לא מצליח לקרוא את קובץ ה-session.")
+        print("❌ המשתמש לא מחובר! Render לא מצליח להשתמש בקובץ ה-session שהעלית.")
         return 
 
     await bot_client.start(bot_token=BOT_TOKEN)
-    print("🚀 הבוט מחובר וסורק הודעות!")
+    print("🚀 הבוט מחובר באמת ומאזין לערוץ המקור!")
     await user_client.run_until_disconnected()
 
 if __name__ == '__main__':
