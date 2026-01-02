@@ -8,10 +8,11 @@ from telethon import TelegramClient, events
 from flask import Flask
 from threading import Thread
 
-# Flask for Render port binding
+# Flask server for Render port binding
 app = Flask('')
 @app.route('/')
-def home(): return "SERVICE_ACTIVE"
+def home(): 
+    return "Bot is running"
 
 def keep_alive():
     Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
@@ -22,11 +23,10 @@ API_HASH = 'b3d96cbe0190406947efc8a0da83b81c'
 BOT_TOKEN = '8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU'
 DESTINATION_ID = -1003406117560
 
-# Source IDs to monitor
-# We check for both string and int formats
-MONITORED_IDS = ['3197498066', '1261315667', '1003197498066', '1001261315667']
+# Source Channel IDs - Exact verified format
+SOURCE_CHANNELS = [-1001261315667, -1003197498066]
 
-def get_aff_link(url):
+def get_affiliate_link(url):
     try:
         params = {
             "method": "aliexpress.social.generate.affiliate.link",
@@ -36,43 +36,54 @@ def get_aff_link(url):
             "timestamp": str(int(time.time() * 1000)),
             "format": "json", "v": "2.0", "sign_method": "md5"
         }
-        query = "".join(f"{k}{v}" for k, v in sorted(params.items()))
-        sign = hashlib.md5(("kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye" + query + "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye").encode('utf-8')).hexdigest().upper()
-        params["sign"] = sign
-        r = requests.get("https://api-sg.aliexpress.com/sync", params=params, timeout=5).json()
-        return r["aliexpress_social_generate_affiliate_link_response"]["result"]["affiliate_link"]
-    except: return url # If API fails, return original link so post isn't lost
+        query_string = "".join(f"{k}{v}" for k, v in sorted(params.items()))
+        sign_source = "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye" + query_string + "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye"
+        params["sign"] = hashlib.md5(sign_source.encode('utf-8')).hexdigest().upper()
+        
+        response = requests.get("https://api-sg.aliexpress.com/sync", params=params, timeout=10).json()
+        return response["aliexpress_social_generate_affiliate_link_response"]["result"]["affiliate_link"]
+    except:
+        return url
 
 user_client = TelegramClient('user_session_v2', API_ID, API_HASH)
 bot_client = TelegramClient('bot_session_v2', API_ID, API_HASH)
 
-# Listen to NEW and EDITED messages
-@user_client.on(events.NewMessage)
-@user_client.on(events.MessageEdited)
+# Monitoring both New and Edited messages from specific chats
+@user_client.on(events.NewMessage(chats=SOURCE_CHANNELS))
+@user_client.on(events.MessageEdited(chats=SOURCE_CHANNELS))
 async def handler(event):
-    chat_id = str(event.chat_id).replace("-100", "")
-    if chat_id in MONITORED_IDS:
-        text = event.message.message or ""
-        # Improved Regex to catch s.click and other variants
-        urls = re.findall(r'(https?://[^\s]*aliexpress[^\s]*)', text)
+    try:
+        msg_text = event.message.message or ""
+        # Broad regex to capture all s.click.aliexpress links
+        urls = re.findall(r'(https?://[^\s]*aliexpress[^\s]*)', msg_text)
         
         if urls:
-            print(f"DEBUG: Found link in {chat_id}")
+            print(f"Deal caught from channel: {event.chat_id}")
+            final_text = msg_text
             for url in urls:
-                text = text.replace(url, get_aff_link(url))
+                aff_url = get_affiliate_link(url)
+                final_text = final_text.replace(url, aff_url)
             
-            media = await event.download_media() if event.media else None
-            await bot_client.send_file(DESTINATION_ID, media, caption=text)
-            if media: os.remove(media)
+            # Download and forward media
+            path = await event.download_media() if event.media else None
+            await bot_client.send_file(DESTINATION_ID, path, caption=final_text)
+            if path: 
+                os.remove(path)
+            print("Successfully processed and forwarded.")
+    except Exception as e:
+        print(f"Error processing: {e}")
 
 async def main():
     keep_alive()
     await user_client.connect()
     if not await user_client.is_user_authorized():
-        print("AUTH_ERROR")
+        print("Auth error: Session not valid.")
         return
+    
     await bot_client.start(bot_token=BOT_TOKEN)
-    await bot_client.send_message(DESTINATION_ID, "🚀 FINAL_TEST: Monitoring Started!")
+    # Confirmation message in English to avoid encoding issues
+    await bot_client.send_message(DESTINATION_ID, "🚀 BOT STARTUP: Monitoring 100% Active.")
+    print("Listening for deals...")
     await user_client.run_until_disconnected()
 
 if __name__ == '__main__':
