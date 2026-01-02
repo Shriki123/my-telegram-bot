@@ -8,11 +8,10 @@ from telethon import TelegramClient, events
 from flask import Flask
 from threading import Thread
 
-# Web server for Render health checks
+# Flask for Render Health Checks
 app = Flask('')
 @app.route('/')
-def home(): 
-    return "SYSTEM_OK"
+def home(): return "STATUS_OK"
 
 def keep_alive():
     Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
@@ -24,7 +23,8 @@ BOT_TOKEN = '8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU'
 DESTINATION_ID = -1003406117560
 
 # Source Channels
-SOURCE_CHANNELS = [-1001261315667, -1003197498066]
+# 1261315667 = דילים סודיים, 3197498066 = דילים שווים
+SOURCE_IDS = [1261315667, 3197498066]
 
 def get_affiliate_link(url):
     try:
@@ -36,59 +36,46 @@ def get_affiliate_link(url):
             "timestamp": str(int(time.time() * 1000)),
             "format": "json", "v": "2.0", "sign_method": "md5"
         }
-        query_string = "".join(f"{k}{v}" for k, v in sorted(params.items()))
-        sign_source = "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye" + query_string + "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye"
-        params["sign"] = hashlib.md5(sign_source.encode('utf-8')).hexdigest().upper()
-        
-        response = requests.get("https://api-sg.aliexpress.com/sync", params=params, timeout=10).json()
-        return response["aliexpress_social_generate_affiliate_link_response"]["result"]["affiliate_link"]
-    except:
-        return url
+        query = "".join(f"{k}{v}" for k, v in sorted(params.items()))
+        sign = hashlib.md5(("kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye" + query + "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye").encode('utf-8')).hexdigest().upper()
+        params["sign"] = sign
+        r = requests.get("https://api-sg.aliexpress.com/sync", params=params, timeout=7).json()
+        return r["aliexpress_social_generate_affiliate_link_response"]["result"]["affiliate_link"]
+    except: return url
 
 user_client = TelegramClient('user_session_v2', API_ID, API_HASH)
 bot_client = TelegramClient('bot_session_v2', API_ID, API_HASH)
 
-# Catching all message types and edits to avoid loss
-@user_client.on(events.NewMessage(chats=SOURCE_CHANNELS))
-@user_client.on(events.MessageEdited(chats=SOURCE_CHANNELS))
+@user_client.on(events.NewMessage)
+@user_client.on(events.MessageEdited)
 async def handler(event):
     try:
-        msg_text = event.message.message or ""
-        # Precise regex for s.click links found in your images
-        urls = re.findall(r'(https?://[^\s]*aliexpress[^\s]*)', msg_text)
-        
-        if urls:
-            print(f"Deal detected from {event.chat_id}")
-            final_text = msg_text
-            for url in urls:
-                aff_link = get_affiliate_link(url)
-                final_text = final_text.replace(url, aff_link)
-            
-            # Forward with media
-            path = await event.download_media() if event.media else None
-            await bot_client.send_file(DESTINATION_ID, path, caption=final_text)
-            if path: 
-                os.remove(path)
-            print("Successfully forwarded!")
-    except Exception as e:
-        print(f"Error: {e}")
+        # Convert any ID format to simple integer
+        chat_id = int(str(event.chat_id).replace("-100", ""))
+        if chat_id in SOURCE_IDS:
+            text = event.message.message or ""
+            # Capture any Aliexpress link format
+            urls = re.findall(r'(https?://[^\s]*aliexpress[^\s]*)', text)
+            if urls:
+                for url in urls:
+                    text = text.replace(url, get_affiliate_link(url))
+                media = await event.download_media() if event.media else None
+                await bot_client.send_file(DESTINATION_ID, media, caption=text)
+                if media: os.remove(media)
+    except Exception as e: print(f"Error: {e}")
 
 async def main():
     keep_alive()
     await user_client.connect()
-    if not await user_client.is_user_authorized():
-        print("Login Required")
-        return
-    
+    if not await user_client.is_user_authorized(): return
     await bot_client.start(bot_token=BOT_TOKEN)
-    print("🚀 Monitoring for deals...")
     
-    # Keeps the connection alive and active on Render
+    # Active connection protection
     while True:
-        await asyncio.sleep(60)
-        # Internal heartbeat to prevent freezing
-        if not user_client.is_connected():
-            await user_client.connect()
+        try:
+            await user_client.get_me()
+            await asyncio.sleep(30)
+        except: await user_client.connect()
 
 if __name__ == '__main__':
     asyncio.run(main())
