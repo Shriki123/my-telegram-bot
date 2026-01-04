@@ -4,28 +4,29 @@ from telethon.errors import FloodWaitError
 from flask import Flask
 from threading import Thread
 
-# ========= שרת Web ל-Render (חובה) =========
+# ========= שרת Web ל-Render (מניעת קריסת אינסטנס) =========
 app = Flask('')
 @app.route('/')
 def home(): return "BOT_SYSTEM_ACTIVE"
 
 def keep_alive():
+    # Render משתמש בפורט 10000 כברירת מחדל
     Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
 
 # ========= הגדרות לוגים =========
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-# ========= פרטי גישה (מאומתים) =========
+# ========= פרטי גישה (מאומתים מהלוגים שלך) =========
 API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
 
-# IDs של ערוצי המקור והיעד מהתמונות שלך
+# IDs של ערוצי המקור והיעד
 SOURCE_IDS = [-1003197498066, -1002215703445]
 DESTINATION_ID = -1003406117560
 
-# ========= ניהול מסד נתונים =========
+# ========= ניהול מסד נתונים למניעת כפילויות =========
 DB_PATH = "seen_posts.db"
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cur = conn.cursor()
@@ -43,7 +44,8 @@ def save_post(cid, mid):
 # ========= פונקציית המרת קישורי אליאקספרס =========
 def convert_ali_link(url):
     try:
-        # פתיחת קישורים מקוצרים (כמו s.click)
+        # פתרון קישורים מקוצרים (תומך ב-s.click)
+        if not url.startswith('http'): url = 'https://' + url
         res = requests.get(url, timeout=10, allow_redirects=True)
         final_url = res.url
         
@@ -61,6 +63,7 @@ def convert_ali_link(url):
     except: return url
 
 # ========= לקוחות טלגרם =========
+# משתמש בקובץ user_v9.session שהעלית ל-GitHub
 u_cli = TelegramClient("user_v9", API_ID, API_HASH)
 b_cli = TelegramClient("bot_v9", API_ID, API_HASH)
 
@@ -68,13 +71,14 @@ async def process_message(msg):
     if not is_new_post(msg.chat_id, msg.id): return
     
     text = msg.text or ""
-    # זיהוי קישורי אליאקספרס (כולל s.click)
-    urls = re.findall(r'(https?://[^\s]*(?:aliexpress|ali\.express|s\.click)\S*)', text, re.I)
+    # זיהוי קישורים רגיש במיוחד (תופס גם ללא http וגם סאב-דומיינים)
+    urls = re.findall(r'((?:https?://)?(?:[a-z0-9-]+\.)*(?:aliexpress\.com|ali\.express|s\.click\.aliexpress\.com)[^\s]*)', text, re.I)
     
     if urls:
-        logger.info(f"🎯 מעבד פוסט חדש מ-{msg.chat_id}")
+        logger.info(f"🎯 מצאתי {len(urls)} קישורים בפוסט מערוץ {msg.chat_id}")
         for url in urls:
-            text = text.replace(url, convert_ali_link(url))
+            new_url = convert_ali_link(url)
+            text = text.replace(url, new_url)
         
         media = await msg.download_media() if msg.media else None
         try:
@@ -84,7 +88,7 @@ async def process_message(msg):
             else:
                 await b_cli.send_message(DESTINATION_ID, text)
         except Exception as e:
-            logger.error(f"Error sending to channel: {e}")
+            logger.error(f"Error sending message: {e}")
             
     save_post(msg.chat_id, msg.id)
 
@@ -95,20 +99,20 @@ async def handler(event):
 async def main():
     keep_alive()
     
-    # ניסיון חיבור עם המתנה אוטומטית לחסימות FloodWait
+    # לולאת חיבור עם המתנה אוטומטית לחסימות (FloodWait)
     while True:
         try:
             await b_cli.start(bot_token=BOT_TOKEN)
             await u_cli.start()
             break
         except FloodWaitError as e:
-            logger.warning(f"⚠️ חסימת טלגרם! ממתין {e.seconds} שניות...")
+            logger.warning(f"⚠️ חסימת טלגרם! ממתין {e.seconds} שניות לפני ניסיון נוסף...")
             await asyncio.sleep(e.seconds + 5)
         except EOFError:
-            logger.error("🛑 שגיאה קריטית: חסר קובץ user_v9.session ב-GitHub!")
+            logger.error("🛑 שגיאה: חסר קובץ ה-Session. וודאי ש-user_v9.session נמצא ב-GitHub.")
             return
 
-    logger.info("🚀 הבוט מחובר ופעיל!")
+    logger.info("🚀 הבוט מחובר וסורק ערוצים בהצלחה!")
     await u_cli.run_until_disconnected()
 
 if __name__ == '__main__':
