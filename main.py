@@ -3,17 +3,19 @@ from telethon import TelegramClient, events, errors
 from flask import Flask
 from threading import Thread
 
+# לוגים ברורים - כדי שנדע מה קורה בשנייה הזו
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = Flask('')
 @app.route('/')
-def home(): return "SYSTEM_READY"
+def home(): return "OK"
 
 def keep_alive():
     try: app.run(host='0.0.0.0', port=10000)
     except: pass
 
+# נתונים מאומתים
 API_ID = 33305115
 API_HASH = 'b3d96cbe0190406947efc8a0da83b81c'
 BOT_TOKEN = '8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU'
@@ -29,55 +31,47 @@ def get_aff_link(url):
         return r["aliexpress_social_generate_affiliate_link_response"]["result"]["affiliate_link"]
     except: return url
 
-u_cli = TelegramClient('sync_worker', API_ID, API_HASH)
-b_cli = TelegramClient('sync_bot', API_ID, API_HASH)
+# שימוש בשם סשן חדש לגמרי כדי "לאפס" את החסימה בטלגרם
+u_cli = TelegramClient('fresh_start_session', API_ID, API_HASH)
+b_cli = TelegramClient('fresh_bot_session', API_ID, API_HASH)
 
-async def process_and_send(event_msg):
-    text = event_msg.message or ""
+async def process_msg(msg):
+    text = msg.message or ""
     urls = re.findall(r'(https?://[^\s]*aliexpress[^\s]*)', text)
     if urls:
+        logger.info(f"🔗 מעבד פוסט עם {len(urls)} קישורים...")
         for url in urls:
             text = text.replace(url, get_aff_link(url))
-        media = await event_msg.download_media() if event_msg.media else None
+        media = await msg.download_media() if msg.media else None
         await b_cli.send_file(DESTINATION_ID, media, caption=text)
         if media: os.remove(media)
-        return True
-    return False
+        logger.info("✅ הפוסט נשלח לערוץ שלך!")
 
 @u_cli.on(events.NewMessage(chats=SOURCE_IDS))
 async def handler(event):
-    logger.info("New live message detected!")
-    await process_and_send(event.message)
-
-async def catch_up():
-    logger.info("🔍 Checking for missed posts...")
-    # בודק מה הפוסטים האחרונים שכבר יש אצלך בערוץ
-    existing_texts = []
-    async for m in b_cli.iter_messages(DESTINATION_ID, limit=10):
-        if m.message: existing_texts.append(m.message[:50]) # שומר התחלה של טקסט לזיהוי
-
-    for s_id in SOURCE_IDS:
-        async for msg in u_cli.iter_messages(s_id, limit=5):
-            if msg.message and msg.message[:50] not in existing_texts:
-                logger.info(f"Found a missed post in {s_id}, copying...")
-                await process_and_send(msg)
-                await asyncio.sleep(2) # הפסקה קצרה למניעת חסימות
+    await process_msg(event.message)
 
 async def run_system():
     Thread(target=keep_alive, daemon=True).start()
     try:
+        logger.info("📡 מנסה להתחבר לטלגרם...")
         await u_cli.start()
         await b_cli.start(bot_token=BOT_TOKEN)
         
-        # שלב השלמת הפערים
-        await catch_up()
-        
-        logger.info("🚀 SYSTEM ONLINE & SYNCED")
+        # מנגנון Catch-up (השלמת פערים)
+        logger.info("🔍 בודק אם היו פוסטים בזמן שהבוט היה כבוי...")
+        for s_id in SOURCE_IDS:
+            async for msg in u_cli.iter_messages(s_id, limit=3):
+                # כאן הבוט פשוט ינסה להעביר את 3 האחרונים ליתר ביטחון
+                await process_msg(msg)
+                await asyncio.sleep(2)
+
+        logger.info("🚀 המערכת באוויר! ממתין לדילים חדשים...")
         while True:
-            await u_cli.get_me()
+            await u_cli.get_me() # שומר על החיבור פעיל
             await asyncio.sleep(30)
     except Exception as e:
-        logger.error(f"Crash: {e}")
+        logger.error(f"❌ שגיאה קריטית: {e}")
         sys.exit(1)
 
 if __name__ == '__main__':
