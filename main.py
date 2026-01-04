@@ -1,15 +1,10 @@
-import asyncio
-import os
-import re
-import requests
-import time
-import hashlib
-import logging
+import asyncio, os, re, requests, time, hashlib, logging
 from telethon import TelegramClient, events, errors
 from flask import Flask
 from threading import Thread
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+# לוגים מפורטים - זה יגיד לנו למה זה לא עובד!
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = Flask('')
@@ -19,6 +14,7 @@ def home(): return "SYSTEM_ACTIVE"
 def keep_alive():
     Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
 
+# --- פרטים מאומתים ---
 API_ID = 33305115
 API_HASH = 'b3d96cbe0190406947efc8a0da83b81c'
 BOT_TOKEN = '8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU'
@@ -38,50 +34,52 @@ def get_affiliate_link(url):
         params["sign"] = hashlib.md5(sign_source.encode('utf-8')).hexdigest().upper()
         r = requests.get("https://api-sg.aliexpress.com/sync", params=params, timeout=15).json()
         return r["aliexpress_social_generate_affiliate_link_response"]["result"]["affiliate_link"]
-    except Exception: return url
+    except: return url
 
-user_client = TelegramClient('stable_session_v4', API_ID, API_HASH)
-bot_client = TelegramClient('stable_bot_v4', API_ID, API_HASH)
-
-async def process_message(message):
-    try:
-        text = message.message or ""
-        urls = re.findall(r'(https?://[^\s]*aliexpress[^\s]*)', text)
-        if urls:
-            for url in urls:
-                text = text.replace(url, get_affiliate_link(url))
-            media = await message.download_media() if message.media else None
-            await bot_client.send_file(DESTINATION_ID, media, caption=text)
-            if media: os.remove(media)
-            logger.info(f"✅ Forwarded message from {message.chat_id}")
-    except Exception as e:
-        logger.error(f"Processing error: {e}")
+# שימוש בשמות סשן חדשים לגמרי כדי למנוע התנגשויות
+user_client = TelegramClient('new_clean_session_user', API_ID, API_HASH)
+bot_client = TelegramClient('new_clean_session_bot', API_ID, API_HASH)
 
 @user_client.on(events.NewMessage(chats=SOURCE_IDS))
 async def handler(event):
-    await process_message(event.message)
+    logger.info(f"📩 הודעה חדשה התקבלה מערוץ מקור: {event.chat_id}")
+    try:
+        text = event.message.message or ""
+        urls = re.findall(r'(https?://[^\s]*aliexpress[^\s]*)', text)
+        if urls:
+            logger.info(f"🔗 נמצאו {len(urls)} קישורים. ממיר...")
+            for url in urls:
+                new_link = get_affiliate_link(url)
+                text = text.replace(url, new_link)
+            
+            media = await event.download_media() if event.media else None
+            await bot_client.send_file(DESTINATION_ID, media, caption=text)
+            if media: os.remove(media)
+            logger.info("✅ הפוסט נשלח בהצלחה לערוץ שלך!")
+    except Exception as e:
+        logger.error(f"❌ שגיאה בעיבוד ההודעה: {e}")
 
-async def start_bot():
+async def main():
     keep_alive()
-    await user_client.start()
-    await bot_client.start(bot_token=BOT_TOKEN)
-    
-    logger.info("🚀 Checking for missed deals...")
-    # בדיקה של 5 ההודעות האחרונות בכל ערוץ כדי למנוע פספוס בזמן הריסטארט
-    for source_id in SOURCE_IDS:
-        async for msg in user_client.iter_messages(source_id, limit=5):
-            # כאן אפשר להוסיף בדיקה אם ההודעה כבר נשלחה, כרגע זה רק יבדוק את האחרונות
-            pass 
+    logger.info("🔄 מתחבר לטלגרם...")
+    try:
+        await user_client.start()
+        await bot_client.start(bot_token=BOT_TOKEN)
+        
+        if not await user_client.is_user_authorized():
+            logger.error("🛑 המשתמש לא מחובר! יש לבצע אימות (Session Error)")
+            return
 
-    logger.info("🚀 MONITORING LIVE - READY FOR NEW DEALS")
-    
-    while True:
-        try:
+        logger.info("🚀 הבוט מחובר וסורק ערוצים! מחכה לדילים...")
+        
+        # מנגנון שמירה על החיבור
+        while True:
             await user_client.get_me()
-            await asyncio.sleep(60) # דופק פעם בדקה כדי לא להעמיס
-        except:
-            logger.info("Connection lost, reconnecting...")
-            await user_client.connect()
+            await asyncio.sleep(45)
+    except Exception as e:
+        logger.error(f"🛑 קריסה כללית: {e}")
+        await asyncio.sleep(10)
+        os._exit(1) # גורם ל-Render להפעיל מחדש את הבוט
 
 if __name__ == '__main__':
-    asyncio.run(start_bot())
+    asyncio.run(main())
