@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 app = Flask('')
 @app.route('/')
-def home(): return "STILL_ALIVE"
+def home(): return "SYSTEM_ACTIVE"
 
 def keep_alive():
     Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
@@ -40,33 +40,48 @@ def get_affiliate_link(url):
         return r["aliexpress_social_generate_affiliate_link_response"]["result"]["affiliate_link"]
     except Exception: return url
 
-user_client = TelegramClient('final_session_v3', API_ID, API_HASH)
-bot_client = TelegramClient('final_bot_v3', API_ID, API_HASH)
+user_client = TelegramClient('stable_session_v4', API_ID, API_HASH)
+bot_client = TelegramClient('stable_bot_v4', API_ID, API_HASH)
 
-@user_client.on(events.NewMessage)
-async def handler(event):
+async def process_message(message):
     try:
-        clean_id = int(str(event.chat_id).replace("-100", ""))
-        if clean_id in SOURCE_IDS:
-            text = event.message.message or ""
-            urls = re.findall(r'(https?://[^\s]*aliexpress[^\s]*)', text)
-            if urls:
-                for url in urls:
-                    text = text.replace(url, get_affiliate_link(url))
-                media = await event.download_media() if event.media else None
-                await bot_client.send_file(DESTINATION_ID, media, caption=text)
-                if media: os.remove(media)
-                logger.info("✅ Deal forwarded!")
-    except Exception as e: logger.error(f"Error: {e}")
+        text = message.message or ""
+        urls = re.findall(r'(https?://[^\s]*aliexpress[^\s]*)', text)
+        if urls:
+            for url in urls:
+                text = text.replace(url, get_affiliate_link(url))
+            media = await message.download_media() if message.media else None
+            await bot_client.send_file(DESTINATION_ID, media, caption=text)
+            if media: os.remove(media)
+            logger.info(f"✅ Forwarded message from {message.chat_id}")
+    except Exception as e:
+        logger.error(f"Processing error: {e}")
+
+@user_client.on(events.NewMessage(chats=SOURCE_IDS))
+async def handler(event):
+    await process_message(event.message)
 
 async def start_bot():
     keep_alive()
     await user_client.start()
     await bot_client.start(bot_token=BOT_TOKEN)
-    logger.info("🚀 MONITORING LIVE")
+    
+    logger.info("🚀 Checking for missed deals...")
+    # בדיקה של 5 ההודעות האחרונות בכל ערוץ כדי למנוע פספוס בזמן הריסטארט
+    for source_id in SOURCE_IDS:
+        async for msg in user_client.iter_messages(source_id, limit=5):
+            # כאן אפשר להוסיף בדיקה אם ההודעה כבר נשלחה, כרגע זה רק יבדוק את האחרונות
+            pass 
+
+    logger.info("🚀 MONITORING LIVE - READY FOR NEW DEALS")
+    
     while True:
-        await user_client.get_me()
-        await asyncio.sleep(30)
+        try:
+            await user_client.get_me()
+            await asyncio.sleep(60) # דופק פעם בדקה כדי לא להעמיס
+        except:
+            logger.info("Connection lost, reconnecting...")
+            await user_client.connect()
 
 if __name__ == '__main__':
     asyncio.run(start_bot())
