@@ -4,7 +4,7 @@ from telethon.errors import FloodWaitError
 from flask import Flask
 from threading import Thread
 
-# ========= Flask (חובה ל-Render - מונע כיבוי הבוט) =========
+# ========= Flask (חובה ל-Render) =========
 app = Flask('')
 @app.route('/')
 def home(): return "BOT_READY"
@@ -16,7 +16,7 @@ def keep_alive():
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-# ========= הגדרות (Credentials) =========
+# ========= פרטי גישה (Credentials) =========
 API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
@@ -25,12 +25,12 @@ ALI_APP_KEY = "524232"
 ALI_SECRET = "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye"
 ALI_TRACKING_ID = "default"
 
-# ========= ערוצים (לפי הדיוק שלך) =========
+# ========= ערוצים (מעודכנים לפי התמונות שלך) =========
 SOURCE_IDS = [-1003197498066, -1002215703445] # דילים סודיים + דילים 2026
 DESTINATION_ID = -1003406117560               # הערוץ שלך
 
-# ========= SQLite (תיקון נתיב ל-Render) =========
-DB_PATH = "seen_messages.db"
+# ========= SQLite (ניהול זיכרון ב-Render) =========
+DB_PATH = "seen.db"
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cur = conn.cursor()
 cur.execute("CREATE TABLE IF NOT EXISTS seen (cid INTEGER, mid INTEGER, UNIQUE(cid, mid))")
@@ -47,7 +47,7 @@ def mark_seen(cid, mid):
 # ========= Affiliate =========
 def get_affiliate(url):
     try:
-        # חילוץ הקישור הסופי (במקרה של קישור מקוצר)
+        # פתרון קישורים מקוצרים (כמו אלו שבתמונות)
         res = requests.get(url, timeout=10, allow_redirects=True)
         final_url = res.url
         
@@ -65,15 +65,13 @@ def get_affiliate(url):
     except: return url
 
 # ========= Telegram =========
-# הוספת 'session_' לשם כדי למנוע התנגשויות
-u_cli = TelegramClient("session_user_v7", API_ID, API_HASH)
-b_cli = TelegramClient("session_bot_v7", API_ID, API_HASH)
+u_cli = TelegramClient("user_final_v8", API_ID, API_HASH)
+b_cli = TelegramClient("bot_final_v8", API_ID, API_HASH)
 
 async def process_msg(msg):
     if already_seen(msg.chat_id, msg.id): return
 
     text = msg.text or ""
-    # זיהוי קישורי אליאקספרס מהתמונות שלך
     urls = re.findall(r'(https?://[^\s]*aliexpress[^\s]*)', text)
     if not urls:
         mark_seen(msg.chat_id, msg.id)
@@ -90,9 +88,7 @@ async def process_msg(msg):
             os.remove(media)
         else:
             await b_cli.send_message(DESTINATION_ID, text)
-        logger.info("✅ הפוסט נשלח!")
-    except FloodWaitError as e:
-        await asyncio.sleep(e.seconds + 2)
+        logger.info("✅ הפוסט הועבר!")
     except Exception as e:
         logger.error(f"Error: {e}")
 
@@ -103,17 +99,17 @@ async def handler(event):
     await process_msg(event.message)
 
 async def main():
-    keep_alive() # הפעלת ה-Keep Alive ל-Render
+    keep_alive() # שומר על הבוט דולק ב-Render
     await u_cli.start()
     await b_cli.start(bot_token=BOT_TOKEN)
     
-    # השלמת פערים (Catch-up)
-    logger.info("🚀 בודק הודעות אחרונות בערוצי המקור...")
+    # השלמת פערים (Catch-up) עבור הפוסטים שפספסת עכשיו
+    logger.info("🚀 בודק הודעות אחרונות שפורסמו...")
     for s_id in SOURCE_IDS:
-        async for m in u_cli.iter_messages(s_id, limit=5):
-            await process_msg(m)
+        async for m in u_cli.iter_messages(s_id, limit=10):
+            await process_message(m)
 
-    logger.info("🚀 המערכת באוויר וממתינה לדילים!")
+    logger.info("🚀 הבוט מחובר וסורק ערוצים!")
     await u_cli.run_until_disconnected()
 
 if __name__ == '__main__':
