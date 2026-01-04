@@ -4,7 +4,7 @@ from telethon.errors import FloodWaitError
 from flask import Flask
 from threading import Thread
 
-# ========= שרת Web ל-Render (חובה) =========
+# ========= שרת Web ל-Render (חובה למניעת קריסות) =========
 app = Flask('')
 @app.route('/')
 def home(): return "BOT_READY"
@@ -16,16 +16,16 @@ def keep_alive():
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-# ========= פרטי גישה =========
+# ========= פרטי גישה (לפי הלוגים שלך) =========
 API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
 
-# IDs של הערוצים מהתמונות שלך
+# IDs של ערוצי המקור והיעד
 SOURCE_IDS = [-1003197498066, -1002215703445]
 DESTINATION_ID = -1003406117560
 
-# ========= בסיס נתונים =========
+# ========= בסיס נתונים למניעת כפילויות =========
 DB_PATH = "seen_messages.db"
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cur = conn.cursor()
@@ -40,7 +40,7 @@ def mark_seen(cid, mid):
     cur.execute("INSERT OR IGNORE INTO seen VALUES (?,?)", (cid, mid))
     conn.commit()
 
-# ========= פונקציית אפילייט =========
+# ========= פונקציית אפילייט אליאקספרס =========
 def get_affiliate(url):
     try:
         res = requests.get(url, timeout=10, allow_redirects=True)
@@ -59,13 +59,13 @@ def get_affiliate(url):
     except: return url
 
 # ========= לקוחות טלגרם =========
+# שימוש בשם סשן קבוע (וודאי שהקובץ הועלה ל-GitHub)
 u_cli = TelegramClient("user_v9", API_ID, API_HASH)
 b_cli = TelegramClient("bot_v9", API_ID, API_HASH)
 
 async def process_msg(msg):
     if already_seen(msg.chat_id, msg.id): return
     text = msg.text or ""
-    # זיהוי קישורי אליאקספרס (כולל s.click מהצילומים שלך)
     urls = re.findall(r'(https?://[^\s]*(?:aliexpress|ali\.express|s\.click)\S*)', text, re.I)
     
     if urls:
@@ -80,9 +80,9 @@ async def process_msg(msg):
                 os.remove(media)
             else:
                 await b_cli.send_message(DESTINATION_ID, text)
-            logger.info("✅ הצלחה!")
+            logger.info("✅ הפוסט הועבר בהצלחה!")
         except Exception as e:
-            logger.error(f"Error: {e}")
+            logger.error(f"שגיאה בשליחה: {e}")
     mark_seen(msg.chat_id, msg.id)
 
 @u_cli.on(events.NewMessage(chats=SOURCE_IDS))
@@ -92,7 +92,7 @@ async def handler(event):
 async def main():
     keep_alive()
     
-    # חיבור המשתמש עם המתנה אוטומטית לחסימות (FloodWait)
+    # חיבור והמתנה חכמה במקרה של חסימה
     while True:
         try:
             await b_cli.start(bot_token=BOT_TOKEN)
@@ -100,15 +100,12 @@ async def main():
             break 
         except FloodWaitError as e:
             logger.warning(f"⚠️ חסימת טלגרם! ממתין {e.seconds} שניות...")
-            await asyncio.sleep(e.seconds + 10)
+            await asyncio.sleep(e.seconds + 5)
         except EOFError:
-            logger.error("🛑 שגיאה: חסר קובץ session. הרצי את הקוד פעם אחת במחשב שלך.")
+            logger.error("🛑 שגיאה: חסר קובץ session ב-GitHub. לא ניתן להזין קוד אימות ב-Render.")
             return
 
-    logger.info("🚀 הבוט באוויר! בודק הודעות אחרונות...")
-    for s_id in SOURCE_IDS:
-        async for m in u_cli.iter_messages(s_id, limit=5):
-            await process_msg(m)
+    logger.info("🚀 הבוט באוויר!")
     await u_cli.run_until_disconnected()
 
 if __name__ == '__main__':
