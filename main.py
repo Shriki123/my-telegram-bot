@@ -1,85 +1,84 @@
-import asyncio, os, re, requests, time, hashlib, logging
+import asyncio, os, re, requests, hashlib, logging, sys, time
 from telethon import TelegramClient, events, errors
 from flask import Flask
 from threading import Thread
 
-# לוגים מפורטים - זה יגיד לנו למה זה לא עובד!
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = Flask('')
 @app.route('/')
-def home(): return "SYSTEM_ACTIVE"
+def home(): return "SYSTEM_READY"
 
 def keep_alive():
-    Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
+    try: app.run(host='0.0.0.0', port=10000)
+    except: pass
 
-# --- פרטים מאומתים ---
 API_ID = 33305115
 API_HASH = 'b3d96cbe0190406947efc8a0da83b81c'
 BOT_TOKEN = '8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU'
 DESTINATION_ID = -1003406117560 
-SOURCE_IDS = [3197498066, 2215703445] 
+SOURCE_IDS = [3197498066, 2215703445]
 
-def get_affiliate_link(url):
+def get_aff_link(url):
     try:
-        params = {
-            "method": "aliexpress.social.generate.affiliate.link",
-            "app_key": "524232", "tracking_id": "default",
-            "source_value": url, "timestamp": str(int(time.time() * 1000)),
-            "format": "json", "v": "2.0", "sign_method": "md5"
-        }
-        query = "".join(f"{k}{v}" for k, v in sorted(params.items()))
-        sign_source = "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye" + query + "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye"
-        params["sign"] = hashlib.md5(sign_source.encode('utf-8')).hexdigest().upper()
-        r = requests.get("https://api-sg.aliexpress.com/sync", params=params, timeout=15).json()
+        p = {"method": "aliexpress.social.generate.affiliate.link", "app_key": "524232", "tracking_id": "default", "source_value": url, "timestamp": str(int(time.time()*1000)), "format": "json", "v": "2.0", "sign_method": "md5"}
+        q = "".join(f"{k}{v}" for k, v in sorted(p.items()))
+        p["sign"] = hashlib.md5(("kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye" + q + "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye").encode()).hexdigest().upper()
+        r = requests.get("https://api-sg.aliexpress.com/sync", params=p, timeout=10).json()
         return r["aliexpress_social_generate_affiliate_link_response"]["result"]["affiliate_link"]
     except: return url
 
-# שימוש בשמות סשן חדשים לגמרי כדי למנוע התנגשויות
-user_client = TelegramClient('new_clean_session_user', API_ID, API_HASH)
-bot_client = TelegramClient('new_clean_session_bot', API_ID, API_HASH)
+u_cli = TelegramClient('sync_worker', API_ID, API_HASH)
+b_cli = TelegramClient('sync_bot', API_ID, API_HASH)
 
-@user_client.on(events.NewMessage(chats=SOURCE_IDS))
+async def process_and_send(event_msg):
+    text = event_msg.message or ""
+    urls = re.findall(r'(https?://[^\s]*aliexpress[^\s]*)', text)
+    if urls:
+        for url in urls:
+            text = text.replace(url, get_aff_link(url))
+        media = await event_msg.download_media() if event_msg.media else None
+        await b_cli.send_file(DESTINATION_ID, media, caption=text)
+        if media: os.remove(media)
+        return True
+    return False
+
+@u_cli.on(events.NewMessage(chats=SOURCE_IDS))
 async def handler(event):
-    logger.info(f"📩 הודעה חדשה התקבלה מערוץ מקור: {event.chat_id}")
-    try:
-        text = event.message.message or ""
-        urls = re.findall(r'(https?://[^\s]*aliexpress[^\s]*)', text)
-        if urls:
-            logger.info(f"🔗 נמצאו {len(urls)} קישורים. ממיר...")
-            for url in urls:
-                new_link = get_affiliate_link(url)
-                text = text.replace(url, new_link)
-            
-            media = await event.download_media() if event.media else None
-            await bot_client.send_file(DESTINATION_ID, media, caption=text)
-            if media: os.remove(media)
-            logger.info("✅ הפוסט נשלח בהצלחה לערוץ שלך!")
-    except Exception as e:
-        logger.error(f"❌ שגיאה בעיבוד ההודעה: {e}")
+    logger.info("New live message detected!")
+    await process_and_send(event.message)
 
-async def main():
-    keep_alive()
-    logger.info("🔄 מתחבר לטלגרם...")
-    try:
-        await user_client.start()
-        await bot_client.start(bot_token=BOT_TOKEN)
-        
-        if not await user_client.is_user_authorized():
-            logger.error("🛑 המשתמש לא מחובר! יש לבצע אימות (Session Error)")
-            return
+async def catch_up():
+    logger.info("🔍 Checking for missed posts...")
+    # בודק מה הפוסטים האחרונים שכבר יש אצלך בערוץ
+    existing_texts = []
+    async for m in b_cli.iter_messages(DESTINATION_ID, limit=10):
+        if m.message: existing_texts.append(m.message[:50]) # שומר התחלה של טקסט לזיהוי
 
-        logger.info("🚀 הבוט מחובר וסורק ערוצים! מחכה לדילים...")
+    for s_id in SOURCE_IDS:
+        async for msg in u_cli.iter_messages(s_id, limit=5):
+            if msg.message and msg.message[:50] not in existing_texts:
+                logger.info(f"Found a missed post in {s_id}, copying...")
+                await process_and_send(msg)
+                await asyncio.sleep(2) # הפסקה קצרה למניעת חסימות
+
+async def run_system():
+    Thread(target=keep_alive, daemon=True).start()
+    try:
+        await u_cli.start()
+        await b_cli.start(bot_token=BOT_TOKEN)
         
-        # מנגנון שמירה על החיבור
+        # שלב השלמת הפערים
+        await catch_up()
+        
+        logger.info("🚀 SYSTEM ONLINE & SYNCED")
         while True:
-            await user_client.get_me()
-            await asyncio.sleep(45)
+            await u_cli.get_me()
+            await asyncio.sleep(30)
     except Exception as e:
-        logger.error(f"🛑 קריסה כללית: {e}")
-        await asyncio.sleep(10)
-        os._exit(1) # גורם ל-Render להפעיל מחדש את הבוט
+        logger.error(f"Crash: {e}")
+        sys.exit(1)
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    asyncio.run(run_system())
