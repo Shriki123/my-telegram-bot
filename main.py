@@ -1,78 +1,158 @@
-import asyncio, os, re, requests, hashlib, logging, sys, time
-from telethon import TelegramClient, events, errors
-from flask import Flask
-from threading import Thread
+import asyncio, os, re, requests, hashlib, logging, sys, time, sqlite3
+from telethon import TelegramClient, events
+from telethon.errors import FloodWaitError
 
-# לוגים ברורים - כדי שנדע מה קורה בשנייה הזו
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+# ========= לוגים =========
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    stream=sys.stdout
+)
 logger = logging.getLogger(__name__)
 
-app = Flask('')
-@app.route('/')
-def home(): return "OK"
+# ========= ENV =========
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-def keep_alive():
-    try: app.run(host='0.0.0.0', port=10000)
-    except: pass
+ALI_APP_KEY = os.getenv("ALI_APP_KEY")
+ALI_SECRET = os.getenv("ALI_SECRET")
+ALI_TRACKING_ID = os.getenv("ALI_TRACKING_ID")
 
-# נתונים מאומתים
-API_ID = 33305115
-API_HASH = 'b3d96cbe0190406947efc8a0da83b81c'
-BOT_TOKEN = '8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU'
-DESTINATION_ID = -1003406117560 
-SOURCE_IDS = [3197498066, 2215703445]
+# ========= ערוצים =========
+SOURCE_IDS = [
+    -100XXXXXXXXXX,  # ⚠️ חייבים להיות IDs של ערוצים
+]
 
-def get_aff_link(url):
+DESTINATION_ID = -100YYYYYYYYYY
+
+# ========= SQLite =========
+DB_PATH = "/data/seen.db"
+conn = sqlite3.connect(DB_PATH)
+cur = conn.cursor()
+cur.execute("""
+CREATE TABLE IF NOT EXISTS seen (
+    channel_id INTEGER,
+    message_id INTEGER,
+    UNIQUE(channel_id, message_id)
+)
+""")
+conn.commit()
+
+def already_seen(cid, mid):
+    cur.execute(
+        "SELECT 1 FROM seen WHERE channel_id=? AND message_id=?",
+        (cid, mid)
+    )
+    return cur.fetchone() is not None
+
+def mark_seen(cid, mid):
+    cur.execute(
+        "INSERT OR IGNORE INTO seen VALUES (?,?)",
+        (cid, mid)
+    )
+    conn.commit()
+
+# ========= Affiliate =========
+def resolve_url(url):
     try:
-        p = {"method": "aliexpress.social.generate.affiliate.link", "app_key": "524232", "tracking_id": "default", "source_value": url, "timestamp": str(int(time.time()*1000)), "format": "json", "v": "2.0", "sign_method": "md5"}
+        return requests.get(url, timeout=10, allow_redirects=True).url
+    except:
+        return url
+
+def get_affiliate(url):
+    try:
+        p = {
+            "method": "aliexpress.social.generate.affiliate.link",
+            "app_key": ALI_APP_KEY,
+            "tracking_id": ALI_TRACKING_ID,
+            "source_value": url,
+            "timestamp": str(int(time.time()*1000)),
+            "format": "json",
+            "v": "2.0",
+            "sign_method": "md5"
+        }
         q = "".join(f"{k}{v}" for k, v in sorted(p.items()))
-        p["sign"] = hashlib.md5(("kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye" + q + "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye").encode()).hexdigest().upper()
-        r = requests.get("https://api-sg.aliexpress.com/sync", params=p, timeout=10).json()
+        sign = hashlib.md5(
+            (ALI_SECRET + q + ALI_SECRET).encode()
+        ).hexdigest().upper()
+        p["sign"] = sign
+
+        r = requests.get(
+            "https://api-sg.aliexpress.com/sync",
+            params=p,
+            timeout=10
+        ).json()
+
         return r["aliexpress_social_generate_affiliate_link_response"]["result"]["affiliate_link"]
-    except: return url
+    except Exception as e:
+        logger.error(f"Affiliate error: {e}")
+        return url
 
-# שימוש בשם סשן חדש לגמרי כדי "לאפס" את החסימה בטלגרם
-u_cli = TelegramClient('fresh_start_session', API_ID, API_HASH)
-b_cli = TelegramClient('fresh_bot_session', API_ID, API_HASH)
+# ========= ניקוי טקסט =========
+BANNED_WORDS = [
+    "וואטסאפ", "whatsapp", "t.me", "telegram",
+    "הצטרפו", "קבוצה", "ערוץ", "bit.ly"
+]
 
-async def process_msg(msg):
-    text = msg.message or ""
-    urls = re.findall(r'(https?://[^\s]*aliexpress[^\s]*)', text)
-    if urls:
-        logger.info(f"🔗 מעבד פוסט עם {len(urls)} קישורים...")
-        for url in urls:
-            text = text.replace(url, get_aff_link(url))
-        media = await msg.download_media() if msg.media else None
-        await b_cli.send_file(DESTINATION_ID, media, caption=text)
-        if media: os.remove(media)
-        logger.info("✅ הפוסט נשלח לערוץ שלך!")
+def is_valid_text(text):
+    low = text.lower()
+    return not any(w in low for w in BANNED_WORDS)
+
+ALI_REGEX = re.compile(
+    r'https?://\S*(aliexpress|ali\.express|s\.click\.aliexpress)\S*',
+    re.I
+)
+
+# ========= Telegram =========
+u_cli = TelegramClient("/data/user_session", API_ID, API_HASH)
+b_cli = TelegramClient("/data/bot_session", API_ID, API_HASH)
+
+async def process_message(msg):
+    if already_seen(msg.chat_id, msg.id):
+        return
+
+    text = msg.text or ""
+    if not text or not is_valid_text(text):
+        mark_seen(msg.chat_id, msg.id)
+        return
+
+    urls = ALI_REGEX.findall(text)
+    if not urls:
+        mark_seen(msg.chat_id, msg.id)
+        return
+
+    for url in re.findall(ALI_REGEX, text):
+        final = resolve_url(url[0])
+        aff = get_affiliate(final)
+        text = text.replace(url[0], aff)
+
+    media = await msg.download_media() if msg.media else None
+
+    try:
+        if media:
+            await b_cli.send_file(DESTINATION_ID, media, caption=text)
+            os.remove(media)
+        else:
+            await b_cli.send_message(DESTINATION_ID, text)
+
+        logger.info("✅ פוסט נשלח")
+    except FloodWaitError as e:
+        logger.warning(f"FloodWait {e.seconds}s")
+        await asyncio.sleep(e.seconds + 2)
+        await b_cli.send_message(DESTINATION_ID, text)
+
+    mark_seen(msg.chat_id, msg.id)
 
 @u_cli.on(events.NewMessage(chats=SOURCE_IDS))
 async def handler(event):
-    await process_msg(event.message)
+    logger.info(f"📥 הודעה חדשה מ-{event.chat_id}")
+    await process_message(event.message)
 
-async def run_system():
-    Thread(target=keep_alive, daemon=True).start()
-    try:
-        logger.info("📡 מנסה להתחבר לטלגרם...")
-        await u_cli.start()
-        await b_cli.start(bot_token=BOT_TOKEN)
-        
-        # מנגנון Catch-up (השלמת פערים)
-        logger.info("🔍 בודק אם היו פוסטים בזמן שהבוט היה כבוי...")
-        for s_id in SOURCE_IDS:
-            async for msg in u_cli.iter_messages(s_id, limit=3):
-                # כאן הבוט פשוט ינסה להעביר את 3 האחרונים ליתר ביטחון
-                await process_msg(msg)
-                await asyncio.sleep(2)
+async def main():
+    await u_cli.start()
+    await b_cli.start(bot_token=BOT_TOKEN)
+    logger.info("🚀 הבוט באוויר")
+    await u_cli.run_until_disconnected()
 
-        logger.info("🚀 המערכת באוויר! ממתין לדילים חדשים...")
-        while True:
-            await u_cli.get_me() # שומר על החיבור פעיל
-            await asyncio.sleep(30)
-    except Exception as e:
-        logger.error(f"❌ שגיאה קריטית: {e}")
-        sys.exit(1)
-
-if __name__ == '__main__':
-    asyncio.run(run_system())
+asyncio.run(main())
