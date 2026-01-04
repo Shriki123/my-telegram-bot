@@ -4,7 +4,7 @@ from telethon.errors import FloodWaitError
 from flask import Flask
 from threading import Thread
 
-# ========= שרת Web (חובה ל-Render) =========
+# ========= שרת Web ל-Render (חובה) =========
 app = Flask('')
 @app.route('/')
 def home(): return "BOT_READY"
@@ -25,7 +25,7 @@ BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
 SOURCE_IDS = [-1003197498066, -1002215703445]
 DESTINATION_ID = -1003406117560
 
-# ========= בסיס נתונים (מניעת כפילויות) =========
+# ========= בסיס נתונים =========
 DB_PATH = "seen_messages.db"
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cur = conn.cursor()
@@ -43,10 +43,8 @@ def mark_seen(cid, mid):
 # ========= פונקציית אפילייט =========
 def get_affiliate(url):
     try:
-        # פתרון קישורים מקוצרים מסוג s.click
         res = requests.get(url, timeout=10, allow_redirects=True)
         final_url = res.url
-        
         p = {
             "method": "aliexpress.social.generate.affiliate.link",
             "app_key": "524232", "tracking_id": "default",
@@ -67,7 +65,7 @@ b_cli = TelegramClient("bot_v9", API_ID, API_HASH)
 async def process_msg(msg):
     if already_seen(msg.chat_id, msg.id): return
     text = msg.text or ""
-    # זיהוי קישורי אליאקספרס (כולל s.click)
+    # זיהוי קישורי אליאקספרס (כולל s.click מהצילומים שלך)
     urls = re.findall(r'(https?://[^\s]*(?:aliexpress|ali\.express|s\.click)\S*)', text, re.I)
     
     if urls:
@@ -82,10 +80,9 @@ async def process_msg(msg):
                 os.remove(media)
             else:
                 await b_cli.send_message(DESTINATION_ID, text)
-            logger.info("✅ הפוסט הועבר!")
+            logger.info("✅ הצלחה!")
         except Exception as e:
-            logger.error(f"Error sending: {e}")
-    
+            logger.error(f"Error: {e}")
     mark_seen(msg.chat_id, msg.id)
 
 @u_cli.on(events.NewMessage(chats=SOURCE_IDS))
@@ -95,25 +92,23 @@ async def handler(event):
 async def main():
     keep_alive()
     
-    # חיבור הבוט
-    await b_cli.start(bot_token=BOT_TOKEN)
-    
-    # חיבור המשתמש עם המתנה אוטומטית לחסימות
-    try:
-        await u_cli.start()
-    except FloodWaitError as e:
-        logger.warning(f"⚠️ חסימת FloodWait! ממתין {e.seconds} שניות...")
-        await asyncio.sleep(e.seconds + 5)
-        await u_cli.start()
-    except EOFError:
-        logger.error("🛑 שגיאה: Render לא יכול לקבל קוד. העלי קובץ session!")
-        return
+    # חיבור המשתמש עם המתנה אוטומטית לחסימות (FloodWait)
+    while True:
+        try:
+            await b_cli.start(bot_token=BOT_TOKEN)
+            await u_cli.start()
+            break 
+        except FloodWaitError as e:
+            logger.warning(f"⚠️ חסימת טלגרם! ממתין {e.seconds} שניות...")
+            await asyncio.sleep(e.seconds + 10)
+        except EOFError:
+            logger.error("🛑 שגיאה: חסר קובץ session. הרצי את הקוד פעם אחת במחשב שלך.")
+            return
 
-    logger.info("🚀 הבוט באוויר! סורק הודעות אחרונות שפספסנו...")
+    logger.info("🚀 הבוט באוויר! בודק הודעות אחרונות...")
     for s_id in SOURCE_IDS:
         async for m in u_cli.iter_messages(s_id, limit=5):
             await process_msg(m)
-            
     await u_cli.run_until_disconnected()
 
 if __name__ == '__main__':
