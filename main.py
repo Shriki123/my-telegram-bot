@@ -15,7 +15,7 @@ def keep_alive():
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-# ========= פרטים אישיים =========
+# ========= פרטים אישיים (מאומתים) =========
 API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
@@ -30,34 +30,37 @@ def init_db():
     conn.commit()
     conn.close()
 
-# ========= פונקציית המרה בטוחה =========
+# ========= פונקציית המרה עם ה-API הגלובלי החדש =========
 def convert_ali_link(url):
     try:
-        # ניקוי והכנת הכתובת
+        # 1. הכנת הקישור (הוספת https אם חסר עבור s.click)
         full_url = url if url.startswith('http') else 'https://' + url
         
-        # שלב 1: פתיחת הקישור המקוצר לקבלת הכתובת המלאה (חובה ל-API)
+        # 2. קבלת הכתובת הסופית (Redirect)
         with requests.get(full_url, timeout=10, allow_redirects=True) as res:
             final_url = res.url
 
-        # שלב 2: פנייה ל-API
+        # 3. פרמטרים ל-API של אליאקספרס
         params = {
-            "method": "aliexpress.social.generate.affiliate.link",
-            "app_key": "524232", 
-            "tracking_id": "default", # מאומת מהתמונה שלך
+            "app_key": "524232",
+            "tracking_id": "default", # מאומת מהתמונה שלך כקיים
             "source_value": final_url,
             "timestamp": str(int(time.time() * 1000)),
-            "format": "json", "v": "2.0", "sign_method": "md5"
+            "format": "json",
+            "v": "2.0",
+            "sign_method": "md5"
         }
         
-        # יצירת חתימה (Sign)
+        # 4. יצירת חתימת אבטחה (Sign)
         sorted_params = "".join(f"{k}{params[k]}" for k in sorted(params))
         query = "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye" + sorted_params + "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye"
         params["sign"] = hashlib.md5(query.encode()).hexdigest().upper()
         
-        response = requests.get("https://api-sg.aliexpress.com/sync", params=params, timeout=10).json()
+        # 5. שליחה לכתובת ה-API הגלובלית (תיקון לשגיאת InvalidApiPath)
+        api_url = "https://gw.api.alibaba.com/openapi/param2/1/aliexpress.open/aliexpress.social.generate.affiliate.link/524232"
+        response = requests.get(api_url, params=params, timeout=10).json()
         
-        # חילוץ הקישור החדש
+        # 6. חילוץ הקישור החדש
         resp_data = response.get("aliexpress_social_generate_affiliate_link_response", {})
         result = resp_data.get("result", {})
         new_link = result.get("affiliate_link")
@@ -67,26 +70,27 @@ def convert_ali_link(url):
             return new_link
         else:
             logger.error(f"❌ אליאקספרס לא החזיר קישור. תשובה: {response}")
-            return None # לא מחזיר קישור אם ההמרה נכשלה
+            return None
             
     except Exception as e:
         logger.error(f"❌ תקלה טכנית בהמרה: {e}")
         return None
 
-# ========= עיבוד הודעות =========
+# ========= עיבוד ושליחה =========
 u_cli = TelegramClient("user_v9", API_ID, API_HASH)
 b_cli = TelegramClient("bot_v9", API_ID, API_HASH)
 
 async def process_message(msg):
     if not msg.text: return
     
-    # בדיקה אם הפוסט כבר פורסם
+    # בדיקה נגד כפילויות
     conn = sqlite3.connect(DB_PATH)
-    if conn.execute("SELECT 1 FROM seen WHERE cid=? AND mid=?", (msg.chat_id, msg.id)).fetchone():
-        conn.close(); return
+    is_seen = conn.execute("SELECT 1 FROM seen WHERE cid=? AND mid=?", (msg.chat_id, msg.id)).fetchone()
     conn.close()
+    if is_seen: return
 
     text = msg.text
+    # זיהוי קישורים רגיש במיוחד
     urls = re.findall(r'((?:https?://)?(?:[a-z0-9-]+\.)*(?:aliexpress\.com|ali\.express|s\.click\.aliexpress\.com)[^\s]*)', text, re.I)
     
     if urls:
@@ -97,7 +101,7 @@ async def process_message(msg):
                 text = text.replace(url, new_url)
                 converted_count += 1
         
-        # שולח רק אם לפחות קישור אחד הומר בהצלחה (כדי לא לעבוד בחינם)
+        # שולח רק אם לפחות קישור אחד הומר בהצלחה (בטוח יותר!)
         if converted_count > 0:
             media = await msg.download_media() if msg.media else None
             try:
@@ -107,7 +111,7 @@ async def process_message(msg):
                 else:
                     await b_cli.send_message(DESTINATION_ID, text)
                 
-                # שמירה למסד הנתונים
+                # סימון הפוסט כ"נקרא" רק אחרי שליחה מוצלחת
                 conn = sqlite3.connect(DB_PATH)
                 conn.execute("INSERT INTO seen VALUES (?,?)", (msg.chat_id, msg.id))
                 conn.commit()
@@ -120,8 +124,16 @@ async def handler(event): await process_message(event.message)
 async def main():
     init_db()
     keep_alive()
-    await b_cli.start(bot_token=BOT_TOKEN)
-    await u_cli.start()
+    # לולאת חיבור עם טיפול בחסימות
+    while True:
+        try:
+            await b_cli.start(bot_token=BOT_TOKEN)
+            await u_cli.start()
+            break
+        except FloodWaitError as e:
+            logger.warning(f"⚠️ חסימת טלגרם! ממתין {e.seconds} שניות...")
+            await asyncio.sleep(e.seconds + 5)
+
     logger.info("🚀 הבוט מחובר וסורק ערוצים!")
     await u_cli.run_until_disconnected()
 
