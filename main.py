@@ -1,5 +1,6 @@
 import asyncio, os, re, requests, hashlib, logging, sys, time, sqlite3
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 from telethon.errors import FloodWaitError
 from flask import Flask
 from threading import Thread
@@ -15,12 +16,15 @@ def keep_alive():
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-# ========= פרטים אישיים (מאומתים) =========
-API_ID = 33305115
+# ========= פרטים אישיים מאומתים =========
+API_ID = 33305115 #
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
 SOURCE_IDS = [-1003197498066, -1002215703445]
 DESTINATION_ID = -1003406117560
+
+# כאן את מדביקה את ה-Session String שקיבלת מהרצת הקוד הנפרד
+SESSION_STRING = "כאן_מדביקים_את_הקוד_הארוך" 
 
 # ========= מסד נתונים =========
 DB_PATH = "seen_posts.db"
@@ -30,19 +34,16 @@ def init_db():
     conn.commit()
     conn.close()
 
-# ========= פונקציית המרה מתוקנת לסטטוס Online =========
+# ========= פונקציית המרה לאפליקציית Online =========
 def convert_ali_link(url):
     try:
-        # 1. השגת הכתובת הסופית של המוצר
         full_url = url if url.startswith('http') else 'https://' + url
         with requests.get(full_url, timeout=10, allow_redirects=True) as res:
             final_url = res.url
 
-        # 2. הגדרת פרמטרים לפי הפרוטוקול החדש
-        # שימי לב: השתמשנו ב-method כפרמטר פנימי ולא בכתובת ה-URL
         params = {
             "app_key": "524232",
-            "tracking_id": "default", # Tracking ID המאושר שלך
+            "tracking_id": "default", #
             "method": "aliexpress.social.generate.affiliate.link",
             "source_value": final_url,
             "timestamp": str(int(time.time() * 1000)),
@@ -51,34 +52,29 @@ def convert_ali_link(url):
             "sign_method": "md5"
         }
         
-        # 3. יצירת חתימה דיגיטלית (Sign)
         sorted_params = "".join(f"{k}{params[k]}" for k in sorted(params))
         query = "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye" + sorted_params + "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye"
         params["sign"] = hashlib.md5(query.encode()).hexdigest().upper()
         
-        # 4. פנייה ל-API הכללי (פותר את בעיית ה-ApiPath)
+        # שימוש בכתובת ה-API הגלובלית לסטטוס Online
         api_url = "https://api-sg.aliexpress.com/sync"
         response = requests.get(api_url, params=params, timeout=10).json()
         
-        # 5. חילוץ הקישור
         res_data = response.get("aliexpress_social_generate_affiliate_link_response", {})
-        result = res_data.get("result", {})
-        new_link = result.get("affiliate_link")
+        new_link = res_data.get("result", {}).get("affiliate_link")
         
         if new_link:
-            logger.info(f"✅ המרה הצליחה: {new_link}")
+            logger.info(f"✅ הצלחה! הומר לקישור שלך: {new_link}")
             return new_link
-        else:
-            logger.error(f"❌ שגיאת API: {response}")
-            return None
+        return None
             
     except Exception as e:
-        logger.error(f"❌ תקלה: {e}")
+        logger.error(f"❌ תקלה בהמרה: {e}")
         return None
 
-# ========= עיבוד ושליחה =========
-u_cli = TelegramClient("user_final", API_ID, API_HASH)
-b_cli = TelegramClient("bot_final", API_ID, API_HASH)
+# ========= התחברות ללא צורך בטלפון בשרת =========
+u_cli = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+b_cli = TelegramClient("bot_v10", API_ID, API_HASH)
 
 async def process_message(msg):
     if not msg.text: return
@@ -92,15 +88,14 @@ async def process_message(msg):
     urls = re.findall(r'((?:https?://)?(?:[a-z0-9-]+\.)*(?:aliexpress\.com|ali\.express|s\.click\.aliexpress\.com)[^\s]*)', text, re.I)
     
     if urls:
-        converted_links = []
+        success = False
         for url in urls:
             new_url = convert_ali_link(url)
             if new_url:
                 text = text.replace(url, new_url)
-                converted_links.append(new_url)
+                success = True
         
-        # שליחה רק אם לפחות קישור אחד הומר בהצלחה
-        if converted_links:
+        if success:
             media = await msg.download_media() if msg.media else None
             try:
                 if media:
@@ -121,9 +116,10 @@ async def handler(event): await process_message(event.message)
 async def main():
     init_db()
     keep_alive()
+    # התחברות אוטומטית ללא צורך בקלט ידני
     await b_cli.start(bot_token=BOT_TOKEN)
     await u_cli.start()
-    logger.info("🚀 הבוט Online ומוכן לעבודה!")
+    logger.info("🚀 הבוט מחובר בסטטוס Online וסורק!")
     await u_cli.run_until_disconnected()
 
 if __name__ == '__main__': asyncio.run(main())
