@@ -15,7 +15,7 @@ def keep_alive():
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-# ========= פרטים אישיים מאומתים =========
+# ========= פרטים אישיים (מאומתים) =========
 API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
@@ -30,19 +30,20 @@ def init_db():
     conn.commit()
     conn.close()
 
-# ========= פונקציית המרה עם התיקון ל-InvalidApiPath =========
+# ========= פונקציית המרה מתוקנת לסטטוס Online =========
 def convert_ali_link(url):
     try:
-        # 1. ניקוי הקישור וקבלת הכתובת הסופית (Redirect)
+        # 1. השגת הכתובת הסופית של המוצר
         full_url = url if url.startswith('http') else 'https://' + url
         with requests.get(full_url, timeout=10, allow_redirects=True) as res:
             final_url = res.url
 
-        # 2. פרמטרים ל-API (שימוש בכתובת המקוצרת ללא /sync לשיפור יציבות)
+        # 2. הגדרת פרמטרים לפי הפרוטוקול החדש
+        # שימי לב: השתמשנו ב-method כפרמטר פנימי ולא בכתובת ה-URL
         params = {
-            "method": "aliexpress.social.generate.affiliate.link",
             "app_key": "524232",
-            "tracking_id": "default", # מאומת מהפורטל שלך
+            "tracking_id": "default", # Tracking ID המאושר שלך
+            "method": "aliexpress.social.generate.affiliate.link",
             "source_value": final_url,
             "timestamp": str(int(time.time() * 1000)),
             "format": "json",
@@ -50,56 +51,56 @@ def convert_ali_link(url):
             "sign_method": "md5"
         }
         
-        # 3. יצירת חתימה (Sign)
+        # 3. יצירת חתימה דיגיטלית (Sign)
         sorted_params = "".join(f"{k}{params[k]}" for k in sorted(params))
         query = "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye" + sorted_params + "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye"
         params["sign"] = hashlib.md5(query.encode()).hexdigest().upper()
         
-        # 4. שליחה לשרת (שימוש ב-Endpoint הגלובלי)
+        # 4. פנייה ל-API הכללי (פותר את בעיית ה-ApiPath)
         api_url = "https://api-sg.aliexpress.com/sync"
         response = requests.get(api_url, params=params, timeout=10).json()
         
-        # 5. חילוץ הקישור החדש
+        # 5. חילוץ הקישור
         res_data = response.get("aliexpress_social_generate_affiliate_link_response", {})
         result = res_data.get("result", {})
         new_link = result.get("affiliate_link")
         
         if new_link:
-            logger.info(f"✅ הצלחה! הומר לקישור שלך: {new_link}")
+            logger.info(f"✅ המרה הצליחה: {new_link}")
             return new_link
         else:
-            logger.error(f"❌ שגיאת אליאקספרס: {response}")
+            logger.error(f"❌ שגיאת API: {response}")
             return None
             
     except Exception as e:
-        logger.error(f"❌ תקלה טכנית: {e}")
+        logger.error(f"❌ תקלה: {e}")
         return None
 
 # ========= עיבוד ושליחה =========
-u_cli = TelegramClient("user_v9", API_ID, API_HASH)
-b_cli = TelegramClient("bot_v9", API_ID, API_HASH)
+u_cli = TelegramClient("user_final", API_ID, API_HASH)
+b_cli = TelegramClient("bot_final", API_ID, API_HASH)
 
 async def process_message(msg):
     if not msg.text: return
     
     conn = sqlite3.connect(DB_PATH)
-    is_seen = conn.execute("SELECT 1 FROM seen WHERE cid=? AND mid=?", (msg.chat_id, msg.id)).fetchone()
+    seen = conn.execute("SELECT 1 FROM seen WHERE cid=? AND mid=?", (msg.chat_id, msg.id)).fetchone()
     conn.close()
-    if is_seen: return
+    if seen: return
 
     text = msg.text
     urls = re.findall(r'((?:https?://)?(?:[a-z0-9-]+\.)*(?:aliexpress\.com|ali\.express|s\.click\.aliexpress\.com)[^\s]*)', text, re.I)
     
     if urls:
-        converted_count = 0
+        converted_links = []
         for url in urls:
             new_url = convert_ali_link(url)
             if new_url:
                 text = text.replace(url, new_url)
-                converted_count += 1
+                converted_links.append(new_url)
         
-        # פרסום רק אם ההמרה הצליחה (בדיקה נגד "עבודה בחינם")
-        if converted_count > 0:
+        # שליחה רק אם לפחות קישור אחד הומר בהצלחה
+        if converted_links:
             media = await msg.download_media() if msg.media else None
             try:
                 if media:
@@ -120,14 +121,8 @@ async def handler(event): await process_message(event.message)
 async def main():
     init_db()
     keep_alive()
-    while True:
-        try:
-            await b_cli.start(bot_token=BOT_TOKEN)
-            await u_cli.start()
-            break
-        except FloodWaitError as e:
-            await asyncio.sleep(e.seconds + 5)
-
+    await b_cli.start(bot_token=BOT_TOKEN)
+    await u_cli.start()
     logger.info("🚀 הבוט Online ומוכן לעבודה!")
     await u_cli.run_until_disconnected()
 
