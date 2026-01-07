@@ -1,10 +1,10 @@
-import asyncio, os, re, requests, hashlib, logging, sys, time, sqlite3
+import asyncio, os, re, requests, hashlib, logging, time, sqlite3
 from telethon import TelegramClient, events
-from telethon.errors import FloodWaitError
+from telethon.sessions import StringSession
 from flask import Flask
 from threading import Thread
 
-# שרת Web ל-Render
+# שרת Web למניעת קריסה ב-Render
 app = Flask('')
 @app.route('/')
 def home(): return "BOT_SYSTEM_ACTIVE"
@@ -22,7 +22,9 @@ BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
 SOURCE_IDS = [-1003197498066, -1002215703445]
 DESTINATION_ID = -1003406117560
 
-# פונקציית המרה שתואמת לסטטוס Online בפורטל שלך
+# הדביקי כאן את השורה הארוכה שהעתקת מ-Replit
+SESSION_STRING = "כאן_מדביקים_את_השורה_הארוכה" 
+
 def convert_ali_link(url):
     try:
         full_url = url if url.startswith('http') else 'https://' + url
@@ -44,57 +46,41 @@ def convert_ali_link(url):
         query = "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye" + sorted_params + "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye"
         params["sign"] = hashlib.md5(query.encode()).hexdigest().upper()
         
-        # שימוש בכתובת ה-API הגלובלית שעובדת
+        # שימוש בכתובת ה-API שתואמת לסטטוס Online
         api_url = "https://api-sg.aliexpress.com/sync"
         response = requests.get(api_url, params=params, timeout=10).json()
         
-        res_key = "aliexpress_social_generate_affiliate_link_response"
-        new_link = response.get(res_key, {}).get("result", {}).get("affiliate_link")
-        
-        if new_link:
-            logger.info(f"✅ הצלחה! הומר לקישור שלך: {new_link}")
-            return new_link
-        return None
+        new_link = response.get("aliexpress_social_generate_affiliate_link_response", {}).get("result", {}).get("affiliate_link")
+        return new_link
     except Exception as e:
-        logger.error(f"❌ תקלה בהמרה: {e}")
+        logger.error(f"❌ שגיאת המרה: {e}")
         return None
 
-# שימוש בקובץ session רגיל במקום String
-u_cli = TelegramClient("user_session", API_ID, API_HASH)
-b_cli = TelegramClient("bot_session", API_ID, API_HASH)
+u_cli = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+b_cli = TelegramClient("bot_v12", API_ID, API_HASH)
 
-async def process_message(msg):
-    if not msg.text: return
-    text = msg.text
+@u_cli.on(events.NewMessage(chats=SOURCE_IDS))
+async def handler(event):
+    if not event.message.text: return
+    text = event.message.text
     urls = re.findall(r'((?:https?://)?(?:[a-z0-9-]+\.)*(?:aliexpress\.com|ali\.express|s\.click\.aliexpress\.com)[^\s]*)', text, re.I)
     
     if urls:
-        success = False
-        for url in urls:
-            new_url = convert_ali_link(url)
-            if new_url:
-                text = text.replace(url, new_url)
-                success = True
-        
-        if success:
-            try:
-                if msg.media:
-                    media = await msg.download_media()
-                    await b_cli.send_file(DESTINATION_ID, media, caption=text)
-                    os.remove(media)
-                else:
-                    await b_cli.send_message(DESTINATION_ID, text)
-            except Exception as e: logger.error(f"Send Error: {e}")
-
-@u_cli.on(events.NewMessage(chats=SOURCE_IDS))
-async def handler(event): await process_message(event.message)
+        new_url = convert_ali_link(urls[0])
+        if new_url:
+            text = text.replace(urls[0], new_url)
+            if event.message.media:
+                media = await event.message.download_media()
+                await b_cli.send_file(DESTINATION_ID, media, caption=text)
+                os.remove(media)
+            else:
+                await b_cli.send_message(DESTINATION_ID, text)
 
 async def main():
     keep_alive()
-    # כאן טמון הפתרון: בחיבור הראשון Render יראה לך הודעה בלוגים
     await b_cli.start(bot_token=BOT_TOKEN)
-    await u_cli.start() 
-    logger.info("🚀 הבוט מחובר וסורק!")
+    await u_cli.start()
+    logger.info("🚀 הבוט Online ומוכן לעבודה!")
     await u_cli.run_until_disconnected()
 
 if __name__ == '__main__':
