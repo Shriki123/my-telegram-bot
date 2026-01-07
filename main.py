@@ -24,83 +24,105 @@ DESTINATION_ID = -1003406117560
 
 # ========= מסד נתונים =========
 DB_PATH = "seen_posts.db"
-conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-cur = conn.cursor()
-cur.execute("CREATE TABLE IF NOT EXISTS seen (cid INTEGER, mid INTEGER, UNIQUE(cid, mid))")
-conn.commit()
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("CREATE TABLE IF NOT EXISTS seen (cid INTEGER, mid INTEGER, UNIQUE(cid, mid))")
+    conn.commit()
+    conn.close()
 
-# ========= פונקציית המרה משופרת (פותרת את בעיית הסיומת הזהה) =========
+# ========= פונקציית המרה בטוחה =========
 def convert_ali_link(url):
     try:
-        # תיקון קריטי: הוספת פרוטוקול אם חסר (עבור s.click)
+        # ניקוי והכנת הכתובת
         full_url = url if url.startswith('http') else 'https://' + url
         
-        # שלב 1: פתיחת הקישור המקוצר לקבלת הכתובת האמיתית
-        res = requests.get(full_url, timeout=10, allow_redirects=True)
-        final_url = res.url
-        
-        # שלב 2: יצירת הקישור שלך דרך ה-API
-        p = {
+        # שלב 1: פתיחת הקישור המקוצר לקבלת הכתובת המלאה (חובה ל-API)
+        with requests.get(full_url, timeout=10, allow_redirects=True) as res:
+            final_url = res.url
+
+        # שלב 2: פנייה ל-API
+        params = {
             "method": "aliexpress.social.generate.affiliate.link",
-            "app_key": "524232", "tracking_id": "default",
-            "source_value": final_url, "timestamp": str(int(time.time() * 1000)),
+            "app_key": "524232", 
+            "tracking_id": "default", # מאומת מהתמונה שלך
+            "source_value": final_url,
+            "timestamp": str(int(time.time() * 1000)),
             "format": "json", "v": "2.0", "sign_method": "md5"
         }
-        q = "".join(f"{k}{v}" for k, v in sorted(p.items()))
-        sign = hashlib.md5(("kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye" + q + "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye").encode()).hexdigest().upper()
-        p["sign"] = sign
         
-        r = requests.get("https://api-sg.aliexpress.com/sync", params=p, timeout=10).json()
-        new_link = r["aliexpress_social_generate_affiliate_link_response"]["result"]["affiliate_link"]
+        # יצירת חתימה (Sign)
+        sorted_params = "".join(f"{k}{params[k]}" for k in sorted(params))
+        query = "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye" + sorted_params + "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye"
+        params["sign"] = hashlib.md5(query.encode()).hexdigest().upper()
         
-        logger.info(f"✅ הצלחה! הומר לקישור חדש: {new_link}")
-        return new_link
+        response = requests.get("https://api-sg.aliexpress.com/sync", params=params, timeout=10).json()
+        
+        # חילוץ הקישור החדש
+        resp_data = response.get("aliexpress_social_generate_affiliate_link_response", {})
+        result = resp_data.get("result", {})
+        new_link = result.get("affiliate_link")
+        
+        if new_link:
+            logger.info(f"✅ הצלחה! הומר לקישור שלך: {new_link}")
+            return new_link
+        else:
+            logger.error(f"❌ אליאקספרס לא החזיר קישור. תשובה: {response}")
+            return None # לא מחזיר קישור אם ההמרה נכשלה
+            
     except Exception as e:
-        logger.error(f"❌ שגיאת המרה: {e}")
-        return url
+        logger.error(f"❌ תקלה טכנית בהמרה: {e}")
+        return None
 
-# ========= ניהול הודעות ולקוחות =========
+# ========= עיבוד הודעות =========
 u_cli = TelegramClient("user_v9", API_ID, API_HASH)
 b_cli = TelegramClient("bot_v9", API_ID, API_HASH)
 
 async def process_message(msg):
-    if not (msg.chat_id in SOURCE_IDS) or not (msg.text) or not (sqlite3.connect(DB_PATH).cursor().execute("SELECT 1 FROM seen WHERE cid=? AND mid=?", (msg.chat_id, msg.id)).fetchone() is None): return
+    if not msg.text: return
     
+    # בדיקה אם הפוסט כבר פורסם
+    conn = sqlite3.connect(DB_PATH)
+    if conn.execute("SELECT 1 FROM seen WHERE cid=? AND mid=?", (msg.chat_id, msg.id)).fetchone():
+        conn.close(); return
+    conn.close()
+
     text = msg.text
-    # זיהוי קישורים משופר (תופס גם s.click ללא https)
     urls = re.findall(r'((?:https?://)?(?:[a-z0-9-]+\.)*(?:aliexpress\.com|ali\.express|s\.click\.aliexpress\.com)[^\s]*)', text, re.I)
     
     if urls:
+        converted_count = 0
         for url in urls:
             new_url = convert_ali_link(url)
-            text = text.replace(url, new_url)
+            if new_url:
+                text = text.replace(url, new_url)
+                converted_count += 1
         
-        media = await msg.download_media() if msg.media else None
-        try:
-            if media:
-                await b_cli.send_file(DESTINATION_ID, media, caption=text)
-                os.remove(media)
-            else:
-                await b_cli.send_message(DESTINATION_ID, text)
-            
-            # שמירה למסד הנתונים רק לאחר שליחה מוצלחת
-            c = sqlite3.connect(DB_PATH); c.cursor().execute("INSERT INTO seen VALUES (?,?)", (msg.chat_id, msg.id)); c.commit()
-        except Exception as e: logger.error(f"Send Error: {e}")
+        # שולח רק אם לפחות קישור אחד הומר בהצלחה (כדי לא לעבוד בחינם)
+        if converted_count > 0:
+            media = await msg.download_media() if msg.media else None
+            try:
+                if media:
+                    await b_cli.send_file(DESTINATION_ID, media, caption=text)
+                    os.remove(media)
+                else:
+                    await b_cli.send_message(DESTINATION_ID, text)
+                
+                # שמירה למסד הנתונים
+                conn = sqlite3.connect(DB_PATH)
+                conn.execute("INSERT INTO seen VALUES (?,?)", (msg.chat_id, msg.id))
+                conn.commit()
+                conn.close()
+            except Exception as e: logger.error(f"Send Error: {e}")
 
 @u_cli.on(events.NewMessage(chats=SOURCE_IDS))
 async def handler(event): await process_message(event.message)
 
 async def main():
+    init_db()
     keep_alive()
-    while True:
-        try:
-            await b_cli.start(bot_token=BOT_TOKEN)
-            await u_cli.start()
-            break
-        except FloodWaitError as e:
-            logger.warning(f"⚠️ חסימה! ממתין {e.seconds} שניות...")
-            await asyncio.sleep(e.seconds + 5)
-    logger.info("🚀 הבוט מחובר וסורק!")
+    await b_cli.start(bot_token=BOT_TOKEN)
+    await u_cli.start()
+    logger.info("🚀 הבוט מחובר וסורק ערוצים!")
     await u_cli.run_until_disconnected()
 
 if __name__ == '__main__': asyncio.run(main())
