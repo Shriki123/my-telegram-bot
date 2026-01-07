@@ -4,7 +4,7 @@ from telethon.errors import FloodWaitError
 from flask import Flask
 from threading import Thread
 
-# ========= שרת Web ל-Render (שומר על הבוט חי) =========
+# ========= שרת Web ל-Render =========
 app = Flask('')
 @app.route('/')
 def home(): return "BOT_SYSTEM_ACTIVE"
@@ -15,14 +15,14 @@ def keep_alive():
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-# ========= פרטים אישיים (מאומתים מהצילומים שלך) =========
-API_ID = 33305115 #
+# ========= פרטים אישיים מאומתים =========
+API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
 SOURCE_IDS = [-1003197498066, -1002215703445]
 DESTINATION_ID = -1003406117560
 
-# ========= מסד נתונים למניעת כפילויות =========
+# ========= מסד נתונים =========
 DB_PATH = "seen_posts.db"
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -30,20 +30,19 @@ def init_db():
     conn.commit()
     conn.close()
 
-# ========= פונקציית המרה סופית ומתוקנת =========
+# ========= פונקציית המרה עם התיקון ל-InvalidApiPath =========
 def convert_ali_link(url):
     try:
-        # 1. ניקוי הקישור והוספת https במידה וחסר (נפוץ ב-s.click)
+        # 1. ניקוי הקישור וקבלת הכתובת הסופית (Redirect)
         full_url = url if url.startswith('http') else 'https://' + url
-        
-        # 2. קבלת הכתובת האמיתית מאחורי הקישור המקוצר
         with requests.get(full_url, timeout=10, allow_redirects=True) as res:
             final_url = res.url
 
-        # 3. פרמטרים ל-API (משתמש ב-Tracking ID: default כפי שמופיע אצלך)
+        # 2. פרמטרים ל-API (שימוש בכתובת המקוצרת ללא /sync לשיפור יציבות)
         params = {
+            "method": "aliexpress.social.generate.affiliate.link",
             "app_key": "524232",
-            "tracking_id": "default", 
+            "tracking_id": "default", # מאומת מהפורטל שלך
             "source_value": final_url,
             "timestamp": str(int(time.time() * 1000)),
             "format": "json",
@@ -51,30 +50,32 @@ def convert_ali_link(url):
             "sign_method": "md5"
         }
         
-        # 4. יצירת חתימת האבטחה (Sign)
+        # 3. יצירת חתימה (Sign)
         sorted_params = "".join(f"{k}{params[k]}" for k in sorted(params))
         query = "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye" + sorted_params + "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye"
         params["sign"] = hashlib.md5(query.encode()).hexdigest().upper()
         
-        # 5. שליחה לכתובת ה-API המתוקנת (api-sg פותר את שגיאת ה-InvalidApiPath)
+        # 4. שליחה לשרת (שימוש ב-Endpoint הגלובלי)
         api_url = "https://api-sg.aliexpress.com/sync"
         response = requests.get(api_url, params=params, timeout=10).json()
         
-        # 6. בדיקה אם הקישור הומר בהצלחה
-        res_key = "aliexpress_social_generate_affiliate_link_response"
-        if res_key in response:
-            new_link = response[res_key]["result"]["affiliate_link"]
+        # 5. חילוץ הקישור החדש
+        res_data = response.get("aliexpress_social_generate_affiliate_link_response", {})
+        result = res_data.get("result", {})
+        new_link = result.get("affiliate_link")
+        
+        if new_link:
             logger.info(f"✅ הצלחה! הומר לקישור שלך: {new_link}")
             return new_link
         else:
-            logger.error(f"❌ אליאקספרס החזיר שגיאה: {response}")
-            return None # החזרת None מונעת פרסום קישור של מישהו אחר
+            logger.error(f"❌ שגיאת אליאקספרס: {response}")
+            return None
             
     except Exception as e:
-        logger.error(f"❌ תקלה טכנית בהמרה: {e}")
+        logger.error(f"❌ תקלה טכנית: {e}")
         return None
 
-# ========= ניהול שליחה ועיבוד הודעות =========
+# ========= עיבוד ושליחה =========
 u_cli = TelegramClient("user_v9", API_ID, API_HASH)
 b_cli = TelegramClient("bot_v9", API_ID, API_HASH)
 
@@ -87,7 +88,6 @@ async def process_message(msg):
     if is_seen: return
 
     text = msg.text
-    # זיהוי קישורים רגיש (תופס גם s.click ללא http)
     urls = re.findall(r'((?:https?://)?(?:[a-z0-9-]+\.)*(?:aliexpress\.com|ali\.express|s\.click\.aliexpress\.com)[^\s]*)', text, re.I)
     
     if urls:
@@ -98,7 +98,7 @@ async def process_message(msg):
                 text = text.replace(url, new_url)
                 converted_count += 1
         
-        # הבוט ישלח את הפוסט רק אם לפחות קישור אחד הומר בהצלחה (בדיקה נגד "עבודה בחינם")
+        # פרסום רק אם ההמרה הצליחה (בדיקה נגד "עבודה בחינם")
         if converted_count > 0:
             media = await msg.download_media() if msg.media else None
             try:
@@ -120,17 +120,15 @@ async def handler(event): await process_message(event.message)
 async def main():
     init_db()
     keep_alive()
-    # לולאת חיבור חזקה
     while True:
         try:
             await b_cli.start(bot_token=BOT_TOKEN)
             await u_cli.start()
             break
         except FloodWaitError as e:
-            logger.warning(f"⚠️ חסימת טלגרם! ממתין {e.seconds} שניות...")
             await asyncio.sleep(e.seconds + 5)
 
-    logger.info("🚀 הבוט מחובר, בסטטוס Online וסורק ערוצים!")
+    logger.info("🚀 הבוט Online ומוכן לעבודה!")
     await u_cli.run_until_disconnected()
 
 if __name__ == '__main__': asyncio.run(main())
