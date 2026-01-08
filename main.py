@@ -24,7 +24,8 @@ DESTINATION_ID = -1003406117560
 def convert_ali_link(url):
     try:
         # פתיחת קישור s.click לקבלת הקישור המקורי
-        res = requests.get(url, timeout=10, allow_redirects=True)
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, timeout=10, allow_redirects=True, headers=headers)
         final_url = res.url
         
         params = {
@@ -46,51 +47,47 @@ b_cli = TelegramClient("bot_instance", API_ID, API_HASH)
 
 @u_cli.on(events.NewMessage(chats=SOURCE_IDS))
 async def handler(event):
-    # קבלת הטקסט מההודעה או מהקאפשן של התמונה
     msg_text = event.message.message or ""
-    logger.info(f"--- בודק הודעה: {msg_text[:30]}... ---")
-
-    # חיפוש כל מה שמתחיל ב-http
-    urls = re.findall(r'(https?://[^\s]+)', msg_text)
+    logger.info(f"--- בודק הודעה חדשה ---")
     
-    # חיפוש נוסף בקישורים שמוחבאים בטקסט (Hyperlinks)
-    if event.message.entities:
+    # חיפוש קישורים - גישה אגרסיבית יותר
+    # מוצא כל דבר שמתחיל ב-http או s.click ומכיל aliexpress
+    urls = re.findall(r'(https?://[^\s,]+)', msg_text)
+    
+    # אם לא נמצאו קישורים בטקסט, נחפש ב"ישויות" (קישורים לחיצים)
+    if not urls and event.message.entities:
         for entity in event.message.entities:
             if hasattr(entity, 'url') and entity.url:
                 urls.append(entity.url)
 
-    urls = list(set(urls)) # ניקוי כפילויות
-    found_any_ali = False
+    found_ali = False
     new_text = msg_text
 
     for url in urls:
         if 'aliexpress' in url.lower():
-            logger.info(f"נמצא קישור אליאקספרס: {url}")
+            logger.info(f"🔍 מצאתי קישור: {url}")
             new_url = convert_ali_link(url)
             if new_url:
                 new_text = new_text.replace(url, new_url)
-                found_any_ali = True
-                logger.info(f"✅ הומר לקישור שלך: {new_url}")
+                found_ali = True
+                logger.info(f"✅ הומר בהצלחה!")
 
-    # אם נמצא קישור אליאקספרס, שלח לערוץ
-    if found_any_ali:
+    if found_ali:
         try:
-            # אם יש תמונה/וידאו - שלח עם המדיה
-            if event.message.media:
-                await b_cli.send_message(DESTINATION_ID, new_text, file=event.message.media)
-            else:
-                await b_cli.send_message(DESTINATION_ID, new_text)
-            logger.info("🚀 ההודעה פורסמה בערוץ שלך בהצלחה!")
+            # שליחה לערוץ שלך
+            await b_cli.send_message(DESTINATION_ID, new_text, file=event.message.media)
+            logger.info("🚀 ההודעה פורסמה בערוץ!")
         except Exception as e:
             logger.error(f"❌ שגיאה בשליחה: {e}")
     else:
-        logger.info("ℹ️ ההודעה לא הכילה קישור אליאקספרס ברור.")
+        logger.info(f"⚠️ נסרק טקסט: {msg_text[:50]}...")
+        logger.info("❌ לא זוהה קישור אליאקספרס בר-המרה.")
 
 async def main():
     keep_alive()
     await b_cli.start(bot_token=BOT_TOKEN)
     await u_cli.start()
-    logger.info("🚀 הבוט Online ומוכן להמיר!")
+    logger.info("🚀 הבוט Online - סריקה אגרסיבית הופעלה!")
     await u_cli.run_until_disconnected()
 
 if __name__ == '__main__':
