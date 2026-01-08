@@ -3,7 +3,7 @@ from telethon import TelegramClient, events
 from flask import Flask
 from threading import Thread
 
-# 1. שרת Web לשמירה על הבוט פעיל
+# 1. שרת Web (למניעת קריסה ב-Render)
 app = Flask('')
 @app.route('/')
 def home(): return "BOT_SYSTEM_ACTIVE"
@@ -21,86 +21,76 @@ BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
 SOURCE_IDS = [-1003197498066, -1002215703445]
 DESTINATION_ID = -1003406117560
 
-# 3. פונקציית המרה חכמה - פותחת קישורים מקוצרים
+# 3. פונקציית המרה (מבוססת על ההצעה שלך)
 def convert_ali_link(url):
     try:
-        # שלב א': פתיחת הקישור המקוצר כדי לראות אם הוא מוביל לאליאקספרס
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, timeout=10, allow_redirects=True, headers=headers)
+        # פתיחת הקישור המקוצר כדי לקבל את הכתובת המלאה של אליאקספרס
+        res = requests.get(url, timeout=10, allow_redirects=True)
         final_url = res.url
         
+        # אימות שאנחנו אכן באליאקספרס
         if 'aliexpress.com' not in final_url:
             return None
 
-        # שלב ב': המרה לקישור אפילייט שלך
         params = {
-            "app_key": "524232", "tracking_id": "default",
+            "app_key": "524232",
+            "tracking_id": "default",
             "method": "aliexpress.social.generate.affiliate.link",
-            "source_value": final_url, "timestamp": str(int(time.time() * 1000)),
-            "format": "json", "v": "2.0", "sign_method": "md5"
+            "source_value": final_url,
+            "timestamp": str(int(time.time() * 1000)),
+            "format": "json",
+            "v": "2.0",
+            "sign_method": "md5"
         }
+        
         sorted_params = "".join(f"{k}{params[k]}" for k in sorted(params))
         query = "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye" + sorted_params + "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye"
         params["sign"] = hashlib.md5(query.encode()).hexdigest().upper()
         
         response = requests.get("https://api-sg.aliexpress.com/sync", params=params, timeout=10).json()
         return response.get("aliexpress_social_generate_affiliate_link_response", {}).get("result", {}).get("affiliate_link")
-    except Exception as e:
-        logger.error(f"שגיאת המרה לקישור {url}: {e}")
+    except:
         return None
 
 # 4. הגדרת לקוחות
 u_cli = TelegramClient("user_v9", API_ID, API_HASH)
 b_cli = TelegramClient("bot_instance", API_ID, API_HASH)
 
-# 5. טיפול בהודעות
+# 5. טיפול בהודעות - החיפוש הפשוט שביקשת
 @u_cli.on(events.NewMessage(chats=SOURCE_IDS))
 async def handler(event):
-    raw_text = event.message.message or ""
-    if not raw_text and not event.message.media: return
+    msg_text = event.message.message or ""
+    logger.info(f"🔍 הודעה התקבלה: {msg_text[:30]}...")
 
-    logger.info(f"--- הודעה התקבלה: {raw_text[:30]} ---")
+    # איתור כל הקישורים בהודעה
+    all_urls = re.findall(r'(https?://[^\s]+)', msg_text)
     
-    # חיפוש כל מה שנראה כמו קישור (מתחיל ב-http)
-    urls = re.findall(r'(https?://[^\s]+)', raw_text)
-    
-    # חיפוש נוסף בקישורים מוחבאים (Entities)
-    if event.message.entities:
-        for entity, url in event.message.get_entities_text():
-            if url and url.startswith('http'): urls.append(url)
+    success = False
+    new_text = msg_text
 
-    urls = list(set(urls)) # ניקוי כפילויות
-    
-    if not urls:
-        logger.info("❌ לא נמצאו קישורים בהודעה.")
-        return
+    for url in all_urls:
+        # כאן יישמתי את מה שאמרת: אם המילה aliexpress מופיעה בקישור
+        if 'aliexpress' in url.lower():
+            logger.info(f"נמצא קישור אליאקספרס: {url}")
+            new_url = convert_ali_link(url)
+            if new_url:
+                new_text = new_text.replace(url, new_url)
+                success = True
+                logger.info(f"✅ הומר בהצלחה: {new_url}")
 
-    new_text = raw_text
-    found_ali = False
-
-    for url in urls:
-        logger.info(f"בודק קישור: {url}")
-        new_url = convert_ali_link(url)
-        if new_url:
-            new_text = new_text.replace(url, new_url)
-            found_ali = True
-            logger.info(f"✅ הומר בהצלחה: {new_url}")
-
-    if found_ali:
+    if success:
         try:
-            # שליחה עם המדיה המקורית (תמונה/וידאו)
+            # שליחה עם המדיה המקורית
             await b_cli.send_message(DESTINATION_ID, new_text, file=event.message.media)
-            logger.info("🚀 ההודעה פורסמה בערוץ שלך!")
+            logger.info("🚀 פורסם בערוץ היעד!")
         except Exception as e:
-            logger.error(f"❌ שגיאה בפרסום: {e}")
-    else:
-        logger.info("ℹ️ נמצאו קישורים, אך אף אחד מהם לא של אליאקספרס.")
+            logger.error(f"❌ שגיאת פרסום: {e}")
 
 async def main():
     keep_alive()
     await b_cli.start(bot_token=BOT_TOKEN)
     await u_cli.start()
-    logger.info("🚀 הבוט Online ומוכן להמיר כל קישור אליאקספרס!")
+    logger.info("🚀 הבוט Online וסורק לפי מילת מפתח!")
     await u_cli.run_until_disconnected()
 
 if __name__ == '__main__':
