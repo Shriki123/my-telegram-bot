@@ -1,9 +1,9 @@
-\import asyncio, os, re, requests, hashlib, logging, time
+import asyncio, os, re, requests, hashlib, logging, time
 from telethon import TelegramClient, events
 from flask import Flask
 from threading import Thread
 
-# 1. שרת Web לשמירה על הבוט פעיל
+# 1. שרת Web לשמירה על הבוט פעיל ב-Render
 app = Flask('')
 @app.route('/')
 def home(): return "BOT_SYSTEM_ACTIVE"
@@ -14,12 +14,14 @@ def keep_alive():
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
+# 2. פרטי התחברות
 API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
 SOURCE_IDS = [-1003197498066, -1002215703445]
 DESTINATION_ID = -1003406117560
 
+# 3. פונקציית המרה
 def convert_ali_link(url):
     try:
         res = requests.get(url, timeout=10, allow_redirects=True)
@@ -43,40 +45,48 @@ def convert_ali_link(url):
         return response.get("aliexpress_social_generate_affiliate_link_response", {}).get("result", {}).get("affiliate_link")
     except: return None
 
+# 4. הגדרת לקוחות (שימוש בקובץ ה-session שהעלית)
 u_cli = TelegramClient("user_v9", API_ID, API_HASH)
 b_cli = TelegramClient("bot_instance", API_ID, API_HASH)
 
+# 5. טיפול בהודעות - זיהוי קישורים מוחבאים (Entities)
 @u_cli.on(events.NewMessage(chats=SOURCE_IDS))
 async def handler(event):
-    logger.info(f"🔍 !! בודק הודעה: {event.message.text[:30] if event.message.text else 'ללא טקסט'}")
+    # הדפסת לוג לזיהוי קבלת ההודעה
+    msg_text = event.message.text if event.message.text else "הודעה עם מדיה בלבד"
+    logger.info(f"🔍 בודק הודעה: {msg_text[:30]}...")
     
-    # שליפת כל הקישורים - גם גלויים וגם מוחבאים בטקסט
     urls = []
-    if event.message.entities:
-        for entity, url in event.message.get_entities_text():
-            if url.startswith('http'):
-                urls.append(url)
     
-    # חיפוש נוסף בטקסט חופשי לביטחון
+    # חיפוש קישורים שמוחבאים בתוך מילים (Hyperlinks)
+    if event.message.entities:
+        for entity in event.message.entities:
+            if hasattr(entity, 'url') and entity.url:
+                urls.append(entity.url)
+    
+    # חיפוש קישורים גלויים בטקסט
     if event.message.text:
         found_in_text = re.findall(r'(https?://[^\s]+)', event.message.text)
         urls.extend(found_in_text)
     
-    # ניקוי כפילויות
+    # הסרת כפילויות
     urls = list(set(urls))
     
     if not urls:
-        logger.info("❌ לא נמצאו קישורים בטקסט או בישויות.")
+        logger.info("❌ לא נמצאו קישורים (גם לא מוחבאים בטקסט).")
         return
 
     success = False
     new_text = event.message.text or ""
+    
     for url in urls:
-        logger.info(f"מנסה להמיר: {url}")
+        logger.info(f"נמצא קישור, מנסה להמיר: {url}")
         new_url = convert_ali_link(url)
         if new_url:
+            # אם הקישור היה מוחבא במילה, הקוד יחליף את המופע שלו בטקסט
             new_text = new_text.replace(url, new_url)
             success = True
+            logger.info(f"✅ המרה הצליחה: {new_url}")
 
     if success:
         try:
@@ -86,15 +96,15 @@ async def handler(event):
                 os.remove(media)
             else:
                 await b_cli.send_message(DESTINATION_ID, new_text)
-            logger.info("🚀 נשלח בהצלחה!")
+            logger.info("🚀 הודעה נשלחה בהצלחה לערוץ!")
         except Exception as e:
-            logger.error(f"❌ שגיאה: {e}")
+            logger.error(f"❌ שגיאה בשליחה: {e}")
 
 async def main():
     keep_alive()
     await b_cli.start(bot_token=BOT_TOKEN)
     await u_cli.start()
-    logger.info("🚀 הבוט Online!")
+    logger.info("🚀 הבוט Online וסורק קישורים מוחבאים!")
     await u_cli.run_until_disconnected()
 
 if __name__ == '__main__':
