@@ -20,7 +20,7 @@ API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
 
-# ה-Session String הסודי שלך (ממנו הבוט מתחבר מיידית)
+# ה-String שחילצת מהמחשב - זה המפתח הסופי
 MY_SESSION_STRING = "1BJWap1sBuwYQrs45ZQWDAw9bGwjbtACbO7MUZ51n7prLsVYzBu5JdkoXGlHhYx-epAeVnWoKqUVxp82QL086bjps2UJCxoPlqwduiwTgssNaUVifPzcH-qLSdnub2eVn1xPnZgqRG34tiv9YiCrQSjvqW8a2NoJJSTL6KhplGJ56wUgwWMBI22yYQCEP9K-peQHhz7vNazXoIZ-xQQ6lLuskCKNu5KbG2PEgnS6zag53anc3jTVa6CJ4xqWZr2EZwvdycwkY1UYMPrqlJG5Wb8QrdaGPV0Mi1KpuVaLY6kV2WS5g9rpMx5vg0B0rM1Kc-0BF_yEFHQ28KBjqZaOTNtdXnhD36Ws="
 
 SOURCE_IDS = [-1003197498066, -1002215703445]
@@ -34,7 +34,6 @@ def convert_ali_link(url):
         url = url.strip(' :;,.')
         res = requests.get(url, timeout=10, allow_redirects=True)
         final_url = res.url
-        
         api_url = "https://api-sg.aliexpress.com/sync"
         params = {
             "app_key": API_KEY, "method": "aliexpress.affiliate.link.generate",
@@ -42,7 +41,6 @@ def convert_ali_link(url):
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
             "format": "json", "v": "2.0", "sign_method": "md5"
         }
-        
         sorted_keys = sorted(params.keys())
         query = API_SECRET
         for k in sorted_keys: query += f"{k}{params[k]}"
@@ -53,18 +51,15 @@ def convert_ali_link(url):
         result = response.get("aliexpress_affiliate_link_generate_response", {}).get("resp_result", {}).get("result", {})
         links = result.get("promote_link_ads_urls", {}).get("promote_link_ads_url", [])
         return links[0] if links else None
-    except Exception as e:
-        logger.error(f"Conversion Error: {e}")
-        return None
+    except: return None
 
-# אתחול הלקוחות ללא קבצים - רק בעזרת המחרוזת
+# אתחול ללא קבצים
 u_cli = TelegramClient(StringSession(MY_SESSION_STRING), API_ID, API_HASH)
 b_cli = TelegramClient('bot_instance', API_ID, API_HASH)
 
 @u_cli.on(events.NewMessage(chats=SOURCE_IDS))
 async def handler(event):
     if not event.message.message and not event.message.media: return
-    
     msg_text = event.message.message or ""
     urls = re.findall(r'(https?://[^\s<>"]+|s\.click\.aliexpress\.com/e/[a-zA-Z0-9_]+)', msg_text)
     ali_urls = [u for u in set(urls) if 'aliexpress' in u.lower()]
@@ -72,12 +67,9 @@ async def handler(event):
     new_text = msg_text
     for url in ali_urls:
         new_url = convert_ali_link(url)
-        if new_url:
-            new_text = new_text.replace(url, new_url)
+        if new_url: new_text = new_text.replace(url, new_url)
 
-    # הדגשה בבולד לכל הטקסט
     final_caption = f"**{new_text}**"
-    
     media_file = None
     try:
         if event.message.media:
@@ -86,18 +78,15 @@ async def handler(event):
             os.remove(media_file)
         else:
             await b_cli.send_message(DESTINATION_ID, final_caption, parse_mode='md')
-        logger.info("✅ הפוסט פורסם בהצלחה עם הקישורים המומרים!")
+        logger.info("✅ פורסם בהצלחה!")
     except Exception as e:
-        logger.error(f"Publishing Error: {e}")
+        logger.error(f"Error: {e}")
         if media_file and os.path.exists(media_file): os.remove(media_file)
 
 async def main():
     keep_alive()
-    # התחברות לבוט
     await b_cli.start(bot_token=BOT_TOKEN)
-    # התחברות למשתמש (Big Deals) - כאן זה יעבור חלק בזכות ה-String
-    await u_cli.start()
-    
+    await u_cli.start() 
     logger.info("🚀 הבוט Online ומחובר סופית (User + Bot)!")
     await u_cli.run_until_disconnected()
 
