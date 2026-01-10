@@ -49,7 +49,7 @@ def convert_ali_link(url):
         return links[0] if links else None
     except: return None
 
-# אתחול
+# אתחול הלקוחות
 u_cli = TelegramClient(StringSession(MY_SESSION_STRING), API_ID, API_HASH)
 b_cli = TelegramClient('bot_instance', API_ID, API_HASH)
 
@@ -72,20 +72,27 @@ async def handler(event):
             os.remove(path)
         else:
             await b_cli.send_message(DESTINATION_ID, final_caption, parse_mode='md')
-        logger.info("✅ הפוסט הועבר והומר בהצלחה!")
+        logger.info("✅ הפוסט הועבר בהצלחה!")
     except Exception as e:
         logger.error(f"❌ שגיאה בשליחה: {e}")
 
 async def main():
     keep_alive()
-    print("--- מנסה להתחבר לבוט... ---")
+    print("--- שלב 1: מתחבר לבוט טוקן ---")
     await b_cli.start(bot_token=BOT_TOKEN)
     
-    print("--- מנסה להתחבר למשתמש (StringSession) ---")
-    # חיבור חכם שעוקף תקיעות במעבר שרתים
-    await u_cli.connect()
-    if not await u_cli.is_user_authorized():
-        await u_cli.start()
+    print("--- שלב 2: מתחבר לחשבון המשתמש ---")
+    # התחברות חכמה עם לופ המתנה ל-Migration
+    max_retries = 5
+    for i in range(max_retries):
+        try:
+            await u_cli.connect()
+            if not await u_cli.is_user_authorized():
+                await u_cli.start()
+            break
+        except Exception as e:
+            print(f"ניסיון {i+1} נכשל (Migration בתהליך...), מחכה 30 שניות...")
+            await asyncio.sleep(30)
         
     print("🚀 הבוט Online ומוכן לעבודה!")
     await u_cli.run_until_disconnected()
