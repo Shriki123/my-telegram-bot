@@ -21,7 +21,7 @@ API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
 MY_SESSION_STRING = "1BJWap1sBuwYQrs45ZQWDAw9bGwjbtACbO7MUZ51n7prLsVYzBu5JdkoXGlHhYx-epAeVnWoKqUVxp82QL086bjps2UJCxoPlqwduiwTgssNaUVifPzcH-qLSdnub2eVn1xPnZgqRG34tiv9YiCrQSjvqW8a2NoJJSTL6KhplGJ56wUgwWMBI22yYQCEP9K-peQHhz7vNazXoIZ-xQQ6lLuskCKNu5KbG2PEgnS6zag53anc3jTVa6CJ4xqWZr2EZwvdycwkY1UYMPrqlJG5Wb8QrdaGPV0Mi1KpuVaLY6kV2WS5g9rpMx5vg0B0rM1Kc-0BF_yEFHQ28KBjqZaOTNtdXnhD36Ws="
 
-# רשימת ערוצי המקור (כולל הערוץ החדש שלך לבדיקות)
+# רשימת ערוצי המקור (כולל ערוץ הבדיקה החדש שלך)
 SOURCE_IDS = [-1003548239072, -1003197498066, -1002215703445]
 DESTINATION_ID = -1003406117560
 
@@ -48,13 +48,14 @@ def convert_ali_link(url):
         params["sign"] = hashlib.md5(query.encode('utf-8')).hexdigest().upper()
         response = requests.get(api_url, params=params, timeout=10).json()
         
-        links = response.get("aliexpress_affiliate_link_generate_response", {}).get("resp_result", {}).get("result", {}).get("promote_link_ads_urls", {}).get("promote_link_ads_url", [])
+        result = response.get("aliexpress_affiliate_link_generate_response", {}).get("resp_result", {}).get("result", {})
+        links = result.get("promote_link_ads_urls", {}).get("promote_link_ads_url", [])
         if links:
-            logger.info(f"✅ קישור הומר בהצלחה: {links[0]}")
+            logger.info(f"✅ הצלחה! קישור חדש: {links[0]}")
             return links[0]
         return None
     except Exception as e:
-        logger.error(f"❌ שגיאה בהמרת קישור: {e}")
+        logger.error(f"❌ שגיאה בהמרה: {e}")
         return None
 
 u_cli = TelegramClient(StringSession(MY_SESSION_STRING), API_ID, API_HASH)
@@ -62,14 +63,15 @@ b_cli = TelegramClient('bot_instance', API_ID, API_HASH)
 
 @u_cli.on(events.NewMessage(chats=SOURCE_IDS))
 async def handler(event):
-    logger.info(f"📩 הודעה חדשה התקבלה מערוץ: {event.chat_id}")
+    logger.info(f"📩 הודעה חדשה מערוץ {event.chat_id}")
     msg_text = event.message.message or ""
     urls = re.findall(r'(https?://[^\s<>"]+|s\.click\.aliexpress\.com/e/[a-zA-Z0-9_]+)', msg_text)
     
     new_text = msg_text
     for url in [u for u in set(urls) if 'aliexpress' in u.lower()]:
         new_url = convert_ali_link(url)
-        if new_url: new_text = new_text.replace(url, new_url)
+        if new_url: 
+            new_text = new_text.replace(url, new_url)
 
     try:
         if event.message.media:
@@ -78,16 +80,24 @@ async def handler(event):
             os.remove(path)
         else:
             await b_cli.send_message(DESTINATION_ID, f"**{new_text}**", parse_mode='md')
-        logger.info("✅ הפוסט נשלח בהצלחה לערוץ היעד!")
+        logger.info("✅ הפוסט נשלח בהצלחה!")
     except Exception as e:
         logger.error(f"❌ שגיאה בשליחה: {e}")
 
 async def main():
     keep_alive()
-    print("🔄 מתחבר לטלגרם...")
+    print("--- מתחבר למערכת ---")
+    
+    # חיבור הבוט
     await b_cli.start(bot_token=BOT_TOKEN)
-    await u_cli.start()
-    print("🚀 הבוט Online! מאזין לערוצים...")
+    
+    # חיבור מהיר של המשתמש (StringSession)
+    await u_cli.connect()
+    if not await u_cli.is_user_authorized():
+        logger.warning("⚠️ דורש אימות מלא - מפעיל תהליך start...")
+        await u_cli.start()
+        
+    print("🚀 הבוט Online ומוכן לעבודה!")
     await u_cli.run_until_disconnected()
 
 if __name__ == '__main__':
