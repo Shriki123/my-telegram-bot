@@ -3,6 +3,7 @@ from telethon import TelegramClient, events
 from flask import Flask
 from threading import Thread
 
+# שרת Web לשמירה על הבוט בחיים
 app = Flask('')
 @app.route('/')
 def home(): return "BOT_SYSTEM_ACTIVE"
@@ -23,7 +24,6 @@ TRACKING_ID = "TelegramBot"
 API_KEY = "524232"
 API_SECRET = "kEF3Vjgjkz2pgfZ8t6rTroUD0TgCKeye"
 
-# פונקציית המרה
 def convert_ali_link(url):
     try:
         url = url.strip(' :;,.')
@@ -40,6 +40,7 @@ def convert_ali_link(url):
             "format": "json", "v": "2.0", "sign_method": "md5"
         }
         
+        # חישוב חתימה תקין
         sorted_keys = sorted(params.keys())
         query = API_SECRET
         for k in sorted_keys: query += f"{k}{params[k]}"
@@ -47,18 +48,21 @@ def convert_ali_link(url):
         params["sign"] = hashlib.md5(query.encode('utf-8')).hexdigest().upper()
         
         response = requests.get(api_url, params=params, timeout=10).json()
+        logger.info(f"AliExpress API Response: {response}")
+        
         result = response.get("aliexpress_affiliate_link_generate_response", {}).get("resp_result", {}).get("result", {})
         links = result.get("promote_link_ads_urls", {}).get("promote_link_ads_url", [])
         return links[0] if links else None
     except: return None
 
-# שימוש בבוט בלבד לשליחה (זה עוקף את הצורך בקוד אימות לכל הודעה)
-bot = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
-# המשתמש (אתה) רק מקשיב
-user = TelegramClient('user_session', API_ID, API_HASH)
+# טעינת המשתמש מתוך הקובץ user_session.session
+u_cli = TelegramClient('user_session', API_ID, API_HASH)
+b_cli = TelegramClient('bot_instance', API_ID, API_HASH)
 
-@user.on(events.NewMessage(chats=SOURCE_IDS))
+@u_cli.on(events.NewMessage(chats=SOURCE_IDS))
 async def handler(event):
+    if not event.message.message and not event.message.media: return
+    
     msg_text = event.message.message or ""
     urls = re.findall(r'(https?://[^\s<>"]+|s\.click\.aliexpress\.com/e/[a-zA-Z0-9_]+)', msg_text)
     ali_urls = [u for u in set(urls) if 'aliexpress' in u.lower()]
@@ -66,26 +70,34 @@ async def handler(event):
     new_text = msg_text
     for url in ali_urls:
         new_url = convert_ali_link(url)
-        if new_url: new_text = new_text.replace(url, new_url)
+        if new_url:
+            new_text = new_text.replace(url, new_url)
 
-    final_text = f"**{new_text}**"
+    # הוספת הדגשה לכל הטקסט
+    final_caption = f"**{new_text}**"
     
-    media = None
-    if event.message.media:
-        media = await event.message.download_media()
-    
-    # הבוט שולח, לא המשתמש - זה הרבה יותר יציב
-    if media:
-        await bot.send_file(DESTINATION_ID, media, caption=final_text, parse_mode='md')
-        os.remove(media)
-    else:
-        await bot.send_message(DESTINATION_ID, final_text, parse_mode='md')
+    media_file = None
+    try:
+        if event.message.media:
+            media_file = await event.message.download_media()
+            await b_cli.send_file(DESTINATION_ID, media_file, caption=final_caption, parse_mode='md')
+            os.remove(media_file)
+        else:
+            await b_cli.send_message(DESTINATION_ID, final_caption, parse_mode='md')
+        logger.info("✅ פורסם בהצלחה בערוץ!")
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        if media_file and os.path.exists(media_file): os.remove(media_file)
 
 async def main():
     keep_alive()
-    await user.start() # אם הוא יבקש קוד, תריץ פעם אחת במחשב ותעלה את קובץ ה-session
-    logger.info("🚀 הבוט מחובר!")
-    await user.run_until_disconnected()
+    await b_cli.start(bot_token=BOT_TOKEN)
+    
+    # במידה והקובץ נמצא, זה יתחבר בלי לבקש קוד
+    await u_cli.start() 
+    
+    logger.info("🚀 הבוט Online ומחובר (באמצעות Session File)!")
+    await u_cli.run_until_disconnected()
 
 if __name__ == '__main__':
     asyncio.run(main())
