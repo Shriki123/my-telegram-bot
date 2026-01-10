@@ -3,7 +3,7 @@ from telethon import TelegramClient, events
 from flask import Flask
 from threading import Thread
 
-# 1. שרת Web למניעת קריסה
+# שרת Web לשמירה על הבוט פעיל
 app = Flask('')
 @app.route('/')
 def home(): return "BOT_SYSTEM_ACTIVE"
@@ -24,74 +24,86 @@ SOURCE_IDS = [-1003197498066, -1002215703445]
 DESTINATION_ID = -1003406117560
 TRACKING_ID = "TelegramBot"
 
-# 2. פונקציית המרה
 def convert_ali_link(url):
     try:
         url = url.strip(' :;,.')
+        # פתיחת הקישור המקוצר
         res = requests.get(url, timeout=10, allow_redirects=True)
         final_url = res.url
         
-        # שימוש ב-API היציב של Alibaba
-        api_url = f"http://gw.api.alibaba.com/openapi/param2/2/portals.open/api.getPromotionLinks/{API_KEY}"
+        # הגדרת ה-API החדש של אליאקספרס (Global Router)
+        api_url = "https://api-sg.aliexpress.com/sync"
+        
         params = {
-            "fields": "promotionUrl",
-            "trackingId": TRACKING_ID,
-            "urls": final_url
+            "app_key": API_KEY,
+            "method": "aliexpress.affiliate.link.generate",
+            "tracking_id": TRACKING_ID,
+            "source_values": final_url,
+            "timestamp": str(int(time.time() * 1000)),
+            "format": "json",
+            "v": "2.0",
+            "sign_method": "md5"
         }
         
-        response = requests.get(api_url, params=params, timeout=10).json()
-        logger.info(f"API Response: {response}")
+        # חישוב החתימה הדיגיטלית (Sign)
+        sorted_params = "".join(f"{k}{params[k]}" for k in sorted(params))
+        query = API_SECRET + sorted_params + API_SECRET
+        params["sign"] = hashlib.md5(query.encode('utf-8')).hexdigest().upper()
         
-        result = response.get("result", {})
-        if result.get("success"):
-            return result.get("promotionUrls")[0].get("promotionUrl")
-        return None
+        response = requests.get(api_url, params=params, timeout=10).json()
+        logger.info(f"AliExpress Response: {response}")
+        
+        # חילוץ הקישור המומר
+        res_obj = response.get("aliexpress_affiliate_link_generate_response", {}).get("resp_result", {}).get("result", {})
+        links = res_obj.get("promote_link_ads_urls", {}).get("promote_link_ads_url", [])
+        
+        return links[0] if links else None
     except Exception as e:
-        logger.error(f"API Error: {e}")
+        logger.error(f"Conversion Error: {e}")
         return None
 
 u_cli = TelegramClient("user_v9", API_ID, API_HASH)
 b_cli = TelegramClient("bot_instance", API_ID, API_HASH)
 
-# 3. טיפול בהודעות ומדיה
 @u_cli.on(events.NewMessage(chats=SOURCE_IDS))
 async def handler(event):
     msg_text = event.message.message or ""
-    logger.info(f"--- הודעה חדשה התקבלה ---")
+    logger.info("--- הודעה חדשה התקבלה ---")
 
     # חיפוש קישורים
     urls = re.findall(r'(https?://[^\s<>"]+|s\.click\.aliexpress\.com/e/[a-zA-Z0-9_]+)', msg_text)
     ali_urls = [u for u in set(urls) if 'aliexpress' in u.lower()]
     
     new_text = msg_text
-    success_convert = False
+    success = False
 
     for url in ali_urls:
         logger.info(f"מנסה להמיר: {url}")
         new_url = convert_ali_link(url)
         if new_url:
             new_text = new_text.replace(url, new_url)
-            success_convert = True
+            success = True
+            logger.info(f"✅ הצלחה! קישור חדש: {new_url}")
 
-    # טיפול במדיה (תמונות/וידאו)
+    # הפיכת כל הטקסט למודגש (Bold)
+    final_text = f"**{new_text}**"
+
     media_file = None
     if event.message.media:
-        logger.info("מוריד מדיה כדי לעקוף חסימה...")
+        logger.info("מעבד מדיה...")
         media_file = await event.message.download_media()
 
     try:
         if media_file:
-            # שליחה עם הקובץ שהורדנו
-            await b_cli.send_file(DESTINATION_ID, media_file, caption=new_text)
-            os.remove(media_file) # מחיקת הקובץ מהשרת אחרי השליחה
-            logger.info("🚀 פורסם בהצלחה עם מדיה!")
+            # שליחה עם Markdown מופעל להדגשה
+            await b_cli.send_file(DESTINATION_ID, media_file, caption=final_text, parse_mode='md')
+            os.remove(media_file)
         else:
-            await b_cli.send_message(DESTINATION_ID, new_text)
-            logger.info("🚀 פורסם בהצלחה (טקסט בלבד)!")
+            await b_cli.send_message(DESTINATION_ID, final_text, parse_mode='md')
+        logger.info("🚀 פורסם בהצלחה!")
     except Exception as e:
         logger.error(f"❌ שגיאת פרסום: {e}")
-        if media_file and os.path.exists(media_file):
-            os.remove(media_file)
+        if media_file and os.path.exists(media_file): os.remove(media_file)
 
 async def main():
     keep_alive()
