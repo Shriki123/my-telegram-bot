@@ -15,13 +15,14 @@ def keep_alive():
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-# --- הגדרות חיבור ---
+# --- הגדרות חיבור (מעודכן עם ה-String החדש שלך) ---
 API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
-MY_SESSION_STRING = "1BJWap1sBuwYQrs45ZQWDAw9bGwjbtACbO7MUZ51n7prLsVYzBu5JdkoXGlHhYx-epAeVnWoKqUVxp82QL086bjps2UJCxoPlqwduiwTgssNaUVifPzcH-qLSdnub2eVn1xPnZgqRG34tiv9YiCrQSjvqW8a2NoJJSTL6KhplGJ56wUgwWMBI22yYQCEP9K-peQHhz7vNazXoIZ-xQQ6lLuskCKNu5KbG2PEgnS6zag53anc3jTVa6CJ4xqWZr2EZwvdycwkY1UYMPrqlJG5Wb8QrdaGPV0Mi1KpuVaLY6kV2WS5g9rpMx5vg0B0rM1Kc-0BF_yEFHQ28KBjqZaOTNtdXnhD36Ws="
+# ה-String החדש שהוצאת מהמחשב:
+MY_SESSION_STRING = "1BJWap1sBu6iTS23l7Vt3XE2kOS9zQaKQrd-0Gq9xo2iP4snrEOfPVUmmeGkgDfL4CQHMkA-uJCcDw-xt2DgCLRQsRAzGRlPwcdQ6Cr2IyILqPrV4UkydYRTKJuy_umSWgeL8fu06rPKv8196A2pA0_4JzeQsUIatp7vVBFyZUZd4osHdXJFsR-NM3Ucc8WT2s8PDUjPSgc7-Wp04eDEaJkmTT3VRhN4-XA740Fjfm5XNu_uFnjMo7L8nrjN5eE79ZecZmYZ48kpVZy37rbgfWQLRv7X10dq-WL_V_rB1M_Ej-GHSIVwM5XhxaUyeQYRVD55RI8R0c6JEFTCep-C31QG8gfNigjg="
 
-# רשימת ערוצי המקור (כולל ערוץ הבדיקה החדש שלך)
+# רשימת ערוצי המקור
 SOURCE_IDS = [-1003548239072, -1003197498066, -1002215703445]
 DESTINATION_ID = -1003406117560
 
@@ -63,15 +64,14 @@ b_cli = TelegramClient('bot_instance', API_ID, API_HASH)
 
 @u_cli.on(events.NewMessage(chats=SOURCE_IDS))
 async def handler(event):
-    logger.info(f"📩 הודעה חדשה מערוץ {event.chat_id}")
+    logger.info(f"📩 הודעה חדשה התקבלה!")
     msg_text = event.message.message or ""
     urls = re.findall(r'(https?://[^\s<>"]+|s\.click\.aliexpress\.com/e/[a-zA-Z0-9_]+)', msg_text)
     
     new_text = msg_text
     for url in [u for u in set(urls) if 'aliexpress' in u.lower()]:
         new_url = convert_ali_link(url)
-        if new_url: 
-            new_text = new_text.replace(url, new_url)
+        if new_url: new_text = new_text.replace(url, new_url)
 
     try:
         if event.message.media:
@@ -80,21 +80,19 @@ async def handler(event):
             os.remove(path)
         else:
             await b_cli.send_message(DESTINATION_ID, f"**{new_text}**", parse_mode='md')
-        logger.info("✅ הפוסט נשלח בהצלחה!")
+        logger.info("✅ פורסם בהצלחה בערוץ היעד!")
     except Exception as e:
         logger.error(f"❌ שגיאה בשליחה: {e}")
 
 async def main():
     keep_alive()
-    print("--- מתחבר למערכת ---")
-    
-    # חיבור הבוט
+    print("--- מתחבר למערכת עם Session חדש ---")
     await b_cli.start(bot_token=BOT_TOKEN)
     
-    # חיבור מהיר של המשתמש (StringSession)
+    # חיבור ישיר ומהיר
     await u_cli.connect()
     if not await u_cli.is_user_authorized():
-        logger.warning("⚠️ דורש אימות מלא - מפעיל תהליך start...")
+        logger.warning("⚠️ ה-Session החדש דורש אימות? (לא אמור לקרות)")
         await u_cli.start()
         
     print("🚀 הבוט Online ומוכן לעבודה!")
