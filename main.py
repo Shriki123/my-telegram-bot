@@ -15,7 +15,6 @@ def keep_alive():
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-# --- הגדרות ---
 API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
@@ -48,12 +47,13 @@ def convert_ali_link(url):
         return links[0] if links else None
     except: return None
 
-# לקוחות
+# אתחול הלקוחות
 u_cli = TelegramClient(StringSession(MY_SESSION_STRING), API_ID, API_HASH)
 b_cli = TelegramClient('bot_instance', API_ID, API_HASH)
 
 @u_cli.on(events.NewMessage(chats=SOURCE_IDS))
 async def handler(event):
+    logger.info("📩 הודעה חדשה זוהתה!")
     msg_text = event.message.message or ""
     urls = re.findall(r'(https?://[^\s<>"]+|s\.click\.aliexpress\.com/e/[a-zA-Z0-9_]+)', msg_text)
     new_text = msg_text
@@ -69,13 +69,16 @@ async def handler(event):
             os.remove(path)
         else:
             await b_cli.send_message(DESTINATION_ID, final_caption, parse_mode='md')
+        logger.info("✅ פורסם בהצלחה!")
     except Exception as e: logger.error(f"Error: {e}")
 
 async def main():
     keep_alive()
+    print("--- מנסה להתחבר לבוט... ---")
     await b_cli.start(bot_token=BOT_TOKEN)
+    print("--- מנסה להתחבר למשתמש (StringSession)... ---")
     await u_cli.start()
-    print("🚀 הבוט Online!")
+    print("🚀 הבוט Online ומוכן לעבודה!")
     await u_cli.run_until_disconnected()
 
 if __name__ == '__main__':
