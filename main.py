@@ -1,9 +1,10 @@
 import asyncio, os, re, requests, hashlib, logging, time
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 from flask import Flask
 from threading import Thread
 
-# שרת Web לשמירה על הבוט בחיים ב-Render
+# שרת Web למניעת קריסה ב-Render
 app = Flask('')
 @app.route('/')
 def home(): return "BOT_SYSTEM_ACTIVE"
@@ -14,13 +15,13 @@ def keep_alive():
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-# --- הגדרות ---
+# --- הגדרות חיבור ---
 API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
 
-# שים לב: כאן רשום בדיוק user_v9 כדי שזה יקרא את הקובץ שהעלית
-USER_SESSION_NAME = 'user_v9' 
+# ה-Session String הסודי שלך (ממנו הבוט מתחבר מיידית)
+MY_SESSION_STRING = "1BJWap1sBuwYQrs45ZQWDAw9bGwjbtACbO7MUZ51n7prLsVYzBu5JdkoXGlHhYx-epAeVnWoKqUVxp82QL086bjps2UJCxoPlqwduiwTgssNaUVifPzcH-qLSdnub2eVn1xPnZgqRG34tiv9YiCrQSjvqW8a2NoJJSTL6KhplGJ56wUgwWMBI22yYQCEP9K-peQHhz7vNazXoIZ-xQQ6lLuskCKNu5KbG2PEgnS6zag53anc3jTVa6CJ4xqWZr2EZwvdycwkY1UYMPrqlJG5Wb8QrdaGPV0Mi1KpuVaLY6kV2WS5g9rpMx5vg0B0rM1Kc-0BF_yEFHQ28KBjqZaOTNtdXnhD36Ws="
 
 SOURCE_IDS = [-1003197498066, -1002215703445]
 DESTINATION_ID = -1003406117560
@@ -56,8 +57,8 @@ def convert_ali_link(url):
         logger.error(f"Conversion Error: {e}")
         return None
 
-# אתחול הלקוחות
-u_cli = TelegramClient(USER_SESSION_NAME, API_ID, API_HASH)
+# אתחול הלקוחות ללא קבצים - רק בעזרת המחרוזת
+u_cli = TelegramClient(StringSession(MY_SESSION_STRING), API_ID, API_HASH)
 b_cli = TelegramClient('bot_instance', API_ID, API_HASH)
 
 @u_cli.on(events.NewMessage(chats=SOURCE_IDS))
@@ -74,7 +75,7 @@ async def handler(event):
         if new_url:
             new_text = new_text.replace(url, new_url)
 
-    # הדגשה של כל הטקסט
+    # הדגשה בבולד לכל הטקסט
     final_caption = f"**{new_text}**"
     
     media_file = None
@@ -85,19 +86,19 @@ async def handler(event):
             os.remove(media_file)
         else:
             await b_cli.send_message(DESTINATION_ID, final_caption, parse_mode='md')
-        logger.info("🚀 הפוסט פורסם בהצלחה!")
+        logger.info("✅ הפוסט פורסם בהצלחה עם הקישורים המומרים!")
     except Exception as e:
         logger.error(f"Publishing Error: {e}")
         if media_file and os.path.exists(media_file): os.remove(media_file)
 
 async def main():
     keep_alive()
+    # התחברות לבוט
     await b_cli.start(bot_token=BOT_TOKEN)
-    
-    # בגלל שהקובץ user_v9.session נמצא בתיקייה, זה יתחבר אוטומטית
+    # התחברות למשתמש (Big Deals) - כאן זה יעבור חלק בזכות ה-String
     await u_cli.start()
     
-    logger.info("🚀 הבוט Online ומחובר (User + Bot)!")
+    logger.info("🚀 הבוט Online ומחובר סופית (User + Bot)!")
     await u_cli.run_until_disconnected()
 
 if __name__ == '__main__':
