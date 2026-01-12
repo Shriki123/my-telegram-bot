@@ -1,13 +1,25 @@
 import asyncio, os, re, requests, hashlib, time
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
+from flask import Flask
+from threading import Thread
 
-# --- הגדרות חיבור ---
+# --- 1. שרת דמי למניעת סגירה ב-Render ---
+web_app = Flask('')
+
+@web_app.route('/')
+def home():
+    return "Bot is running!"
+
+def run_flask():
+    # Render מספק פורט באופן אוטומטי במשתנה סביבה בשם PORT
+    port = int(os.environ.get("PORT", 8080))
+    web_app.run(host='0.0.0.0', port=port)
+
+# --- 2. הגדרות הבוט ---
 API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
-
-# *** תדביק כאן את המחרוזת הארוכה מהתמונה ששלחת ***
 STRING_SESSION = "1BJWap1sBu2NV_JEM1vlCuF9LDFx5NRB7F_8DHEBC2byjgj-lkXU-nV4gRG2vGQjNuv6nR6Azu-B26_kOPZ2AhhGnyoCuJhpv9oRvZaCdwRuWxEm7wk4hOJyUV5mQqwlym2xAZ3jD2coWxm27qmgq71wHEfv7nFy1gmJr5-50Ud1D1NVGvvqjKxtW_STEqsobvhyGKfZAbOoh4xQDSuh7jmQ1KLIWjCI0KRPdS7MCdTA9jqwaaxAGgJTlNCHt03TnFpSWLIRdObQxotJoGJFTS_ftn2J4cq1vRtRStrCUr89q2LqXSnIDsU2I4goh5U2dxS1qnYHgIs6hcQt1GQdJyrL1e0osVs8=" 
 
 SOURCE_IDS = [-1003548239072, -1003197498066, -1002215703445]
@@ -24,8 +36,7 @@ def get_real_product_url(short_url):
         headers = {'User-Agent': 'Mozilla/5.0'}
         url = short_url if short_url.startswith('http') else 'https://' + short_url
         response = requests.get(url, headers=headers, allow_redirects=True, timeout=10)
-        final_url = response.url
-        return final_url.replace("he.aliexpress.com", "www.aliexpress.com").split('?')[0]
+        return response.url.replace("he.aliexpress.com", "www.aliexpress.com").split('?')[0]
     except:
         return short_url
 
@@ -50,7 +61,6 @@ def convert_ali_link(url: str):
     except:
         return None
 
-# חיבור מקצועי ללא קבצים (String Session)
 u_cli = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 b_cli = TelegramClient("bot_session", API_ID, API_HASH)
 
@@ -58,16 +68,13 @@ b_cli = TelegramClient("bot_session", API_ID, API_HASH)
 async def handler(event):
     if event.id in processed_msgs: return
     processed_msgs.add(event.id)
-    
     text = event.message.message or ""
     links = re.findall(r's\.click\.aliexpress\.com/e/[A-Za-z0-9_]+', text)
     if not links: return
 
-    print(f"🎯 Processing post with {len(links)} link(s)...")
     new_text = text
     success_count = 0
     unique_links = set(links)
-    
     for link in unique_links:
         aff_link = convert_ali_link(link)
         if aff_link:
@@ -82,17 +89,20 @@ async def handler(event):
                 if os.path.exists(path): os.remove(path)
             else:
                 await b_cli.send_message(DESTINATION_ID, new_text)
-            print("✅ Post sent successfully from Render!")
         except Exception as e:
-            print(f"❌ Telegram Send Error: {e}")
-    else:
-        print(f"⛔ Blocked: Only {success_count}/{len(unique_links)} links converted.")
+            print(f"Error: {e}")
 
 async def main():
     await u_cli.start()
     await b_cli.start(bot_token=BOT_TOKEN)
-    print("🟢 BOT IS ONLINE AND ACTIVE ON RENDER!")
+    print("🟢 Bot is Online with Flask heartbeat!")
     await u_cli.run_until_disconnected()
 
 if __name__ == "__main__":
+    # הפעלת השרת בשלוחה נפרדת (Thread) כדי שלא יפריע לבוט
+    t = Thread(target=run_flask)
+    t.daemon = True
+    t.start()
+    
+    # הפעלת הבוט
     asyncio.run(main())
