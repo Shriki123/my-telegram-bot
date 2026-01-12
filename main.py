@@ -4,7 +4,7 @@ from telethon.sessions import StringSession
 from flask import Flask
 from threading import Thread
 
-# שרת Flask כדי לשמור על הבוט חי ב-Render
+# Flask for Render
 app = Flask('')
 @app.route('/')
 def home(): return "Bot is Online"
@@ -12,44 +12,54 @@ def home(): return "Bot is Online"
 def run_flask():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
 
-# הגדרות הרשמה
+# Credentials
 API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
 
-# ה-Session החדש ששלחת
-SS = "1BJWap1sBuznctNO-WAyP4AMXMD16f-UPgTYlvOPpcKVaeOZ--3ai3hql_0FbSVWkqbMFI8Kvc_rfetbLw8FBk0WqnPeAyMhD_TePQiUyp_K-Dot-_qKXKgoGOEje9P9Jg99saXaT82lqxFUs-6jVbXw6csBqeLFFBOsm1he20EnqkvSlxoQhmx5kHTFFNbpuxncOaqBYESyrpN20GC9WepiIWlvL0xRMbuQVikPDPU0-xqsNxUVtu05GMG69lOWbPKj5ARIfQJZuT6aFFtklSt0sy96xaE8D0FEm0HzLhYHHHpujbPPt1ZapttT5_ZEVG3Wk-KyKqnQGKVuBO_T3cU3rtP0JPes="
+# ה-Session החדש ששלחת עכשיו
+SS = "1BJ Wap1sBu4j5BtOUz9_E9R87tEs0bxxGpAakLGsf dgyYwLHbjZuDN0yRjGaaVVgX5wBdukl8uMwc_tOUkiGj4o-LFxoMgVjYUXdH2CxKWpwy3uAoobOO0RoFy Jupii9QHFc48HIKQudFyNU4zGOChcc4EYkW5v09yTpyHjZzNHWnq9TAMyQ0ugN9NkIgxDr4PVP1sE8IPydfWiUgz5aaFd5W5Wpk0MXK3NoeCWa8yqaWhG6Lo uKAZnG9ykzSLqLlKbMos_x1TpnHpJHNldQy-_xykDwYBIYRJU_AqXHCUgoLJXq4GyRKWlyVpLGQvp_3Z8AOgRB2sUpo-4gcnBAD0NeInU0EoqrBY="
+# הערה: אם יש רווחים במחרוזת למעלה כתוצאה מהעתקה, הקוד ינקה אותם אוטומטית למטה
 
 DEST_ID = -1003406117560
 
-u_cli = TelegramClient(StringSession(SS), API_ID, API_HASH)
+# ניקוי רווחים מה-Session למקרה שהשתרבבו
+clean_ss = SS.replace(" ", "")
+
+u_cli = TelegramClient(StringSession(clean_ss), API_ID, API_HASH, connection_retries=15, retry_delay=10)
 b_cli = TelegramClient("bot_instance", API_ID, API_HASH)
 
 @u_cli.on(events.NewMessage())
 async def handler(event):
-    # הדפסה שתראה לנו בלוג שהבוט קלט משהו
-    print(f"📡 Radar detected message from: {event.chat_id}")
+    print(f"📡 Radar caught something from: {event.chat_id}")
     if "aliexpress.com" in (event.raw_text or ""):
         try:
             await b_cli.send_message(DEST_ID, event.raw_text)
-            print("🚀 SUCCESS: Link forwarded to channel!")
+            print("🚀 Forwarded successfully!")
         except Exception as e:
-            print(f"❌ Error forwarding: {e}")
+            print(f"❌ Forward error: {e}")
 
-async def start_bot():
-    print("--- 1. STARTING CONNECTION PROCESS ---")
+async def main():
+    print("--- 🟢 INITIATING FORCE CONNECTION ---")
     try:
-        await u_cli.start()
+        # התחברות ללקוח המשתמש
+        await u_cli.connect()
+        if not await u_cli.is_user_authorized():
+            print("--- ❌ SESSION EXPIRED OR INVALID ---")
+            return
+            
+        # התחברות לבוט
         await b_cli.start(bot_token=BOT_TOKEN)
+        
         me = await u_cli.get_me()
-        print(f"--- 2. LOGIN SUCCESS: Connected as {me.first_name} ---")
-        print("--- 3. RADAR ACTIVE: Waiting for messages... ---")
+        print(f"--- ✅ LOGIN SUCCESS: Connected as {me.first_name} ---")
+        print("--- 📡 LISTENING FOR MESSAGES... ---")
+        
         await u_cli.run_until_disconnected()
     except Exception as e:
-        print(f"--- ❌ LOGIN FAILED: {e} ---")
+        print(f"--- ❌ CRITICAL ERROR: {e} ---")
 
 if __name__ == "__main__":
-    # הפעלת שרת ה-Web ברקע
     Thread(target=run_flask, daemon=True).start()
-    # הפעלת הבוט
-    asyncio.run(start_bot())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
