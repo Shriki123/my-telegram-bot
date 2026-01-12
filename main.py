@@ -7,7 +7,7 @@ from threading import Thread
 # Web Server for Render
 web_app = Flask('')
 @web_app.route('/')
-def home(): return "Bot is Active"
+def home(): return "Bot is Online"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -25,13 +25,14 @@ b_cli = TelegramClient("bot_session", API_ID, API_HASH)
 
 @u_cli.on(events.NewMessage())
 async def handler(event):
-    # This will print EVERY message ID the bot sees to the log
-    print(f"DEBUG: New message from ID: {event.chat_id}")
+    # This prints EVERY message ID the bot sees to the Render log
+    print(f"📡 DEBUG: New message caught from ID: {event.chat_id}")
     
-    if "aliexpress.com" in (event.message.message or ""):
-        print("✅ Ali link detected! Forwarding...")
+    text = event.message.message or ""
+    if "aliexpress.com" in text:
+        print("✅ Ali link found! Attempting to forward...")
         try:
-            await b_cli.send_message(DESTINATION_ID, event.message.message)
+            await b_cli.send_message(DESTINATION_ID, text)
             print("🚀 Successfully forwarded!")
         except Exception as e:
             print(f"❌ Error sending: {e}")
@@ -42,10 +43,10 @@ async def main():
         await b_cli.start(bot_token=BOT_TOKEN)
         me = await u_cli.get_me()
         print(f"🟢 SUCCESS: Connected as {me.first_name}")
-        print("🟢 RADAR IS ON: Listening for any message...")
+        print("🟢 RADAR IS ON: Listening for messages...")
         await u_cli.run_until_disconnected()
     except Exception as e:
-        print(f"🔴 CRITICAL ERROR: {e}")
+        print(f"🔴 CONNECTION ERROR: {e}")
 
 if __name__ == "__main__":
     t = Thread(target=run_flask)
