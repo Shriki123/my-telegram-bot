@@ -4,7 +4,7 @@ from telethon.sessions import StringSession
 from flask import Flask
 from threading import Thread
 
-# שרת דמי
+# --- שרת דמי ל-Render ---
 web_app = Flask('')
 @web_app.route('/')
 def home(): return "Radar is Online!"
@@ -13,6 +13,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host='0.0.0.0', port=port)
 
+# --- הגדרות ---
 API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
@@ -26,26 +27,27 @@ b_cli = TelegramClient("bot_session", API_ID, API_HASH)
 
 @u_cli.on(events.NewMessage())
 async def radar_handler(event):
-    # השורה הזו היא הקריטית - היא תגיד לנו מה הבוט רואה
-    print(f"📡 הבוט זיהה הודעה! מגיע מ-ID: {event.chat_id}")
+    # הדפסה פשוטה ללוג כדי לראות מאיפה מגיעות הודעות
+    cid = event.chat_id
+    print(f"📡 New message detected from ID: {cid}")
     
-    # אם זה אחד מהערוצים שלנו, ננסה לעבד
-    if event.chat_id in SOURCE_IDS:
-        print("✅ זה ערוץ מקור מאושר! מתחיל בדיקת קישורים...")
+    if cid in SOURCE_IDS:
+        print(f"✅ Source match! Processing ID: {cid}")
         text = event.message.message or ""
         links = re.findall(r's\.click\.aliexpress\.com/e/[A-Za-z0-9_]+', text)
         if links:
-            print(f"🔗 נמצאו {len(links)} קישורים להמרה!")
-            # כאן תבוא פונקציית ההמרה שלך...
-        else:
-            print("⚠️ אין קישורי אליאקספרס בהודעה הזו.")
+            print(f"🔗 Found {len(links)} links. Check destination channel now.")
+            # כאן הבוט יבצע את השליחה (השמטתי המרה לקיצור הבדיקה)
+            await b_cli.send_message(DESTINATION_ID, f"בוט זיהה פוסט בערוץ {cid}\nטקסט: {text[:50]}...")
 
 async def main():
     await u_cli.start()
     await b_cli.start(bot_token=BOT_TOKEN)
-    print("🚀 המכ"ם פעיל! מחכה לכל הודעה שהיא בטלגרם...")
+    print("🟢 Radar is active and listening to ALL messages...")
     await u_cli.run_until_disconnected()
 
 if __name__ == "__main__":
-    Thread(target=run_flask).start()
+    t = Thread(target=run_flask)
+    t.daemon = True
+    t.start()
     asyncio.run(main())
