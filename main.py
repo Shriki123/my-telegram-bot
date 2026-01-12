@@ -3,15 +3,17 @@ from telethon import TelegramClient, events
 from flask import Flask
 from threading import Thread
 
-# ================= Flask (Keeping Render Alive) =================
+# --- שרת Flask למניעת כיבוי על ידי Render ---
 app = Flask(__name__)
 @app.route('/')
-def home(): return "BOT IS ONLINE"
+def home(): return "Affiliate Bot Status: Running"
 
 def run_flask():
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+    # Render מחייב האזנה לפורט שהם נותנים
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
 
-# ================= Config =================
+# --- נתוני גישה (השארתי את שלך) ---
 API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
@@ -23,12 +25,11 @@ ALI_APP_KEY = "524232"
 ALI_SECRET = "kEF3VJgjkz2pgfZ8t6rTroUD0TgCKeye"
 ALI_TRACKING_ID = "TelegramBot"
 
-# ================= Clients (Using YOUR Files) =================
-# כאן התיקון: אנחנו משתמשים בשם הקובץ שהעלית לגיט
+# --- יצירת הלקוחות לפי הקבצים שהעלית ---
+# שים לב: אנחנו משתמשים בשמות הקבצים בלי הסיומת .session
 u_cli = TelegramClient("user_v9", API_ID, API_HASH)
 b_cli = TelegramClient("bot_session_v2", API_ID, API_HASH)
 
-# ================= Link Converter =================
 def convert_ali_link(url: str):
     try:
         params = {
@@ -44,18 +45,19 @@ def convert_ali_link(url: str):
         return res["aliexpress_affiliate_link_generate_response"]["resp_result"]["result"]["promotion_links"]["promotion_link"][0]["promotion_link"]
     except: return None
 
-# ================= Handler =================
 @u_cli.on(events.NewMessage(chats=SOURCE_IDS))
 async def handler(event):
     text = event.message.message or ""
     links = re.findall(r's\.click\.aliexpress\.com/e/[A-Za-z0-9_]+', text)
     if not links: return
     
-    print(f"🎯 נלכדו {len(links)} קישורים להמרה")
+    print(f"🎯 Processing {len(links)} link(s)...")
     new_text = text
     for link in set(links):
         aff = convert_ali_link(link)
-        if aff: new_text = new_text.replace(link, aff)
+        if aff: 
+            new_text = new_text.replace(link, aff)
+            print(f"✅ Converted: {aff}")
     
     try:
         if event.message.media:
@@ -64,26 +66,37 @@ async def handler(event):
             if os.path.exists(path): os.remove(path)
         else:
             await b_cli.send_message(DESTINATION_ID, new_text)
-        print("🚀 פוסט נשלח בהצלחה!")
+        print("🚀 Message sent to channel!")
     except Exception as e:
-        print(f"❌ שגיאת שליחה: {e}")
+        print(f"❌ Forward error: {e}")
 
-# ================= Execution =================
-async def main():
-    print("--- 🟢 מתחבר באמצעות קבצי ה-Session שהעלית ---")
+async def start_services():
+    print("--- 🟢 STARTING BOT SERVICES ---")
+    
+    # הפעלת שרת Flask ברקע
     Thread(target=run_flask, daemon=True).start()
     
-    await b_cli.start(bot_token=BOT_TOKEN)
-    await u_cli.connect()
-    
-    if not await u_cli.is_user_authorized():
-        print("--- ❌ שגיאה: הקובץ user_v9.session עדיין לא מאושר! ---")
-        return
+    try:
+        # חיבור פיזי לשרתים של טלגרם (פותר את ה-ConnectionError)
+        await u_cli.connect()
+        await b_cli.connect()
+        
+        # התחברות עם הבוט (משתמש ב-Token)
+        await b_cli.start(bot_token=BOT_TOKEN)
+        
+        # בדיקה אם קובץ הסשן של המשתמש תקין
+        if not await u_cli.is_user_authorized():
+            print("--- ❌ FATAL ERROR: Session file is INVALID! ---")
+            print("You must generate a NEW user_v9.session on your PC and upload it.")
+            return
 
-    me = await u_cli.get_me()
-    print(f"✅ הצלחה! מחובר כ: {me.first_name}")
-    print("👂 מאזין לערוצים ומחכה לקישורים...")
-    await u_cli.run_until_disconnected()
+        me = await u_cli.get_me()
+        print(f"--- ✅ SUCCESS: Connected as {me.first_name} ---")
+        await u_cli.run_until_disconnected()
+        
+    except Exception as e:
+        print(f"--- ❌ CRITICAL ERROR: {e} ---")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # הרצה בטוחה של ה-Loop
+    asyncio.run(start_services())
