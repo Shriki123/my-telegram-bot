@@ -26,10 +26,15 @@ async def handler(event):
     print(f"DEBUG: Message caught! Chat ID: {event.chat_id} | Text: {event.raw_text[:30]}")
 
 async def main():
-    await u_cli.start()
-    print("SUCCESS: Bot is running and scanning all messages...")
-    await u_cli.run_until_disconnected()
+    try:
+        await u_cli.start()
+        print("SUCCESS: Bot is running and scanning all messages...")
+        await u_cli.run_until_disconnected()
+    except Exception as e:
+        print(f"CONNECTION ERROR: {e}")
 
 if __name__ == "__main__":
-    Thread(target=run_flask).start()
+    t = Thread(target=run_flask)
+    t.daemon = True
+    t.start()
     asyncio.run(main())
