@@ -3,15 +3,15 @@ from telethon import TelegramClient, events
 from flask import Flask
 from threading import Thread
 
-# --- Render Keeping-Alive ---
+# --- שרת Flask לשמירה על יציבות ---
 app = Flask('')
 @app.route('/')
-def home(): return "Affiliate Bot is Online"
+def home(): return "Bot is Online"
 
 def run_flask():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
 
-# --- CREDENTIALS ---
+# --- נתוני גישה ---
 API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
@@ -23,15 +23,12 @@ ALI_APP_KEY = "524232"
 ALI_SECRET = "kEF3VJgjkz2pgfZ8t6rTroUD0TgCKeye"
 ALI_TRACKING_ID = "TelegramBot"
 
-# --- CLIENTS SETUP ---
-# משתמשים בדיוק בשם הקובץ שיש לך ב-GitHub
+# --- יצירת הלקוחות ---
 u_cli = TelegramClient("user_v9", API_ID, API_HASH)
 b_cli = TelegramClient("bot_session_v2", API_ID, API_HASH)
 
 def convert_ali_link(url: str):
-    # (הלוגיקה של אליאקספרס נשארת אותו דבר)
     try:
-        # פונקציה מקוצרת לצורך בדיקה
         params = {
             "method": "aliexpress.affiliate.link.generate",
             "app_key": ALI_APP_KEY, "tracking_id": ALI_TRACKING_ID,
@@ -51,28 +48,45 @@ async def handler(event):
     links = re.findall(r's\.click\.aliexpress\.com/e/[A-Za-z0-9_]+', text)
     if not links: return
     
+    print(f"🎯 מזהה {len(links)} קישורים להמרה...")
     new_text = text
     for link in set(links):
         aff = convert_ali_link(link)
-        if aff: new_text = new_text.replace(link, aff)
+        if aff: 
+            new_text = new_text.replace(link, aff)
+            print(f"✅ הומר: {aff}")
     
-    await b_cli.send_message(DESTINATION_ID, new_text)
+    try:
+        if event.message.media:
+            path = await event.message.download_media()
+            await b_cli.send_file(DESTINATION_ID, path, caption=new_text)
+            if os.path.exists(path): os.remove(path)
+        else:
+            await b_cli.send_message(DESTINATION_ID, new_text)
+    except Exception as e:
+        print(f"❌ שגיאת שליחה: {e}")
 
 async def start_bot():
-    print("--- 🟢 STARTING CONNECTION ---")
-    Thread(target=run_flask, daemon=True).start()
+    print("--- 🟢 מתחיל תהליך חיבור לטלגרם ---")
     
-    # חיבור הבוט (זה תמיד עובד קל)
-    await b_cli.start(bot_token=BOT_TOKEN)
+    # 1. חיבור פיזי לשרתים
+    await u_cli.connect()
+    await b_cli.connect()
     
-    # בדיקה אם קובץ ה-Session של המשתמש תקין
+    # 2. כניסה עם הבוט
+    await b_cli.login(bot_token=BOT_TOKEN)
+    
+    # 3. בדיקה אם המשתמש מחובר (בלי לקרוס)
     if not await u_cli.is_user_authorized():
-        print("--- ❌ ERROR: user_v9.session IS NOT AUTHORIZED! ---")
-        print("Please run the script locally first to generate a valid session file.")
+        print("--- ❌ שגיאה: קובץ user_v9.session אינו מחובר! ---")
+        print("עליך לייצר את הקובץ מחדש במחשב ולהעלות לגיט.")
         return
 
-    print("--- ✅ SUCCESS: Both User and Bot are connected! ---")
+    me = await u_cli.get_me()
+    print(f"--- ✅ הצלחה! מחובר כ: {me.first_name} ---")
     await u_cli.run_until_disconnected()
 
 if __name__ == "__main__":
-    asyncio.run(start_bot())
+    Thread(target=run_flask, daemon=True).start()
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(start_bot())
