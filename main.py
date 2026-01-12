@@ -4,16 +4,16 @@ from telethon.sessions import StringSession
 from flask import Flask
 from threading import Thread
 
-# --- 1. שרת דמי למניעת סגירה ב-Render ---
+# --- שרת דמי ל-Render ---
 web_app = Flask('')
 @web_app.route('/')
-def home(): return "Bot is running!"
+def home(): return "Bot is Alive!"
 
 def run_flask():
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 10000))
     web_app.run(host='0.0.0.0', port=port)
 
-# --- 2. הגדרות הבוט ---
+# --- הגדרות ---
 API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
@@ -26,97 +26,76 @@ ALI_APP_KEY = "524232"
 ALI_SECRET = "kEF3VJgjkz2pgfZ8t6rTroUD0TgCKeye"
 ALI_TRACKING_ID = "TelegramBot"
 
-processed_msgs = set()
-
-def get_real_product_url(short_url):
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        url = short_url if short_url.startswith('http') else 'https://' + short_url
-        response = requests.get(url, headers=headers, allow_redirects=True, timeout=10)
-        return response.url.replace("he.aliexpress.com", "www.aliexpress.com").split('?')[0]
-    except Exception as e:
-        print(f"Error opening URL {short_url}: {e}")
-        return short_url
+u_cli = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
+b_cli = TelegramClient("bot_session", API_ID, API_HASH)
 
 def convert_ali_link(url: str):
     try:
-        target_url = get_real_product_url(url)
+        # ניקוי ופתיחת קישור
+        r = requests.get(url, allow_redirects=True, timeout=10)
+        target = r.url.split('?')[0]
+        
         params = {
             "method": "aliexpress.affiliate.link.generate",
-            "app_key": ALI_APP_KEY, 
-            "tracking_id": ALI_TRACKING_ID,
-            "source_values": target_url,
-            "promotion_link_type": "0", 
+            "app_key": ALI_APP_KEY, "tracking_id": ALI_TRACKING_ID,
+            "source_values": target, "promotion_link_type": "0", 
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
             "format": "json", "v": "2.0", "sign_method": "md5"
         }
         query = ALI_SECRET + "".join(f"{k}{params[k]}" for k in sorted(params)) + ALI_SECRET
         params["sign"] = hashlib.md5(query.encode()).hexdigest().upper()
+        
         res = requests.get("https://api-sg.aliexpress.com/sync", params=params).json()
         data = res.get("aliexpress_affiliate_link_generate_response", {}).get("resp_result", {}).get("result", {})
-        promo_links = data.get("promotion_links", {}).get("promotion_link", [])
-        return promo_links[0].get("promotion_link") if promo_links else None
-    except Exception as e:
-        print(f"Conversion error: {e}")
-        return None
+        links = data.get("promotion_links", {}).get("promotion_link", [])
+        return links[0].get("promotion_link") if links else None
+    except: return None
 
-u_cli = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
-b_cli = TelegramClient("bot_session", API_ID, API_HASH)
-
-# שינוי: הבוט מאזין לכל הודעה בערוצי המקור, כולל העברות
-@u_cli.on(events.NewMessage(chats=SOURCE_IDS))
+# --- המאזין החדש (רגיש יותר) ---
+@u_cli.on(events.NewMessage())
 async def handler(event):
-    if event.id in processed_msgs: return
-    processed_msgs.add(event.id)
-    
+    # הדפסה ללוג: הבוט ראה הודעה כלשהי בטלגרם
+    chat_id = event.chat_id
+    print(f"📩 הודעה התקבלה מ-ID: {chat_id}")
+
+    if chat_id not in SOURCE_IDS:
+        return # לא מערוץ המקור שלנו
+
     text = event.message.message or ""
-    # זיהוי קישורי אליאקספרס
     links = re.findall(r's\.click\.aliexpress\.com/e/[A-Za-z0-9_]+', text)
     
     if not links:
+        print("ℹ️ הודעה התקבלה אבל לא נמצאו בה קישורי אליאקספרס.")
         return
 
-    print(f"🔎 בוט זיהה פוסט עם {len(links)} קישורים בערוץ המקור...")
+    print(f"🔥 נמצאו {len(links)} קישורים! מתחיל המרה...")
     
     new_text = text
-    success_count = 0
-    unique_links = set(links)
-    
-    for link in unique_links:
-        print(f"🔄 ממיר קישור: {link}")
-        aff_link = convert_ali_link(link)
-        if aff_link:
-            new_text = new_text.replace(link, aff_link)
-            success_count += 1
-            print(f"✅ הומר ל: {aff_link}")
+    for link in set(links):
+        aff = convert_ali_link(link)
+        if aff:
+            new_text = new_text.replace(link, aff)
+            print(f"✅ קישור הומר בהצלחה")
         else:
-            print(f"❌ המרה נכשלה עבור: {link}")
+            print(f"⚠️ קישור נכשל בהמרה: {link}")
 
-    # שולח רק אם כל הקישורים הומרו
-    if success_count > 0 and success_count == len(unique_links):
-        try:
-            if event.message.media:
-                print("📸 מוריד מדיה ושולח...")
-                path = await event.message.download_media()
-                await b_cli.send_file(DESTINATION_ID, path, caption=new_text)
-                if os.path.exists(path): os.remove(path)
-            else:
-                print("📝 שולח הודעת טקסט...")
-                await b_cli.send_message(DESTINATION_ID, new_text)
-            print("🚀 הפוסט נשלח בהצלחה לערוץ שלך!")
-        except Exception as e:
-            print(f"❌ שגיאה בשליחה לטלגרם: {e}")
-    else:
-        print(f"⛔ פוסט לא נשלח: הומרו רק {success_count} מתוך {len(unique_links)} קישורים.")
+    try:
+        if event.message.media:
+            path = await event.message.download_media()
+            await b_cli.send_file(DESTINATION_ID, path, caption=new_text)
+            os.remove(path)
+        else:
+            await b_cli.send_message(DESTINATION_ID, new_text)
+        print("🚀 פוסט נשלח בהצלחה לערוץ היעד!")
+    except Exception as e:
+        print(f"❌ שגיאה בשליחה: {e}")
 
 async def main():
     await u_cli.start()
     await b_cli.start(bot_token=BOT_TOKEN)
-    print("🟢 הבוט פעיל ומאזין לערוצי המקור (Render Mode)!")
+    print("🟢 בוט רץ ומחכה לפוסטים...")
     await u_cli.run_until_disconnected()
 
 if __name__ == "__main__":
-    t = Thread(target=run_flask)
-    t.daemon = True
-    t.start()
+    Thread(target=run_flask).start()
     asyncio.run(main())
