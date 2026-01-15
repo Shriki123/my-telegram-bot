@@ -1,5 +1,6 @@
 import asyncio, os, re, requests, hashlib, time
 from telethon import TelegramClient, events
+from telethon.sessions import MemorySession # הוספתי הפעלה מהזיכרון בלבד
 from flask import Flask
 from threading import Thread
 
@@ -22,9 +23,11 @@ ALI_APP_KEY = "524232"
 ALI_SECRET = "kEF3VJgjkz2pgfZ8t6rTroUD0TgCKeye"
 ALI_TRACKING_ID = "TelegramBot"
 
-# --- שינוי ל-v4 כדי לעקוף את הקבצים התקולים ב-Render ---
+# --- המשתמש משתמש בקובץ הקיים ---
 u_cli = TelegramClient("user_v9", API_ID, API_HASH)
-b_cli = TelegramClient("bot_session_v4", API_ID, API_HASH)
+
+# --- הבוט יעבוד מהזיכרון בלבד (בלי קבצים שיכולים לפוג) ---
+b_cli = TelegramClient(MemorySession(), API_ID, API_HASH)
 
 def convert_ali_link(url: str):
     try:
@@ -47,7 +50,7 @@ async def handler(event):
     links = re.findall(r's\.click\.aliexpress\.com/e/[A-Za-z0-9_]+', text)
     if not links: return
     
-    print(f"🎯 נלכדו {len(links)} קישורים")
+    print(f"🎯 Processing {len(links)} links")
     new_text = text
     for link in set(links):
         aff = convert_ali_link(link)
@@ -60,21 +63,21 @@ async def handler(event):
             if os.path.exists(path): os.remove(path)
         else:
             await b_cli.send_message(DESTINATION_ID, new_text)
-        print("🚀 פוסט נשלח!")
+        print("🚀 Message sent!")
     except Exception as e:
-        print(f"❌ שגיאת שליחה: {e}")
+        print(f"❌ Send error: {e}")
 
 async def start_services():
-    print("--- 🟢 STARTING BOT SERVICES (v4) ---")
+    print("--- 🟢 STARTING BOT SERVICES (MEMORY MODE) ---")
     Thread(target=run_flask, daemon=True).start()
     
     try:
-        # הפעלה נקייה עם הטוקן
+        # חיבור הבוט מחדש בכל פעם (מונע את שגיאת ה-Expired)
         await b_cli.start(bot_token=BOT_TOKEN)
         await u_cli.connect()
         
         if not await u_cli.is_user_authorized():
-            print("--- ❌ FATAL ERROR: user_v9.session is INVALID ---")
+            print("--- ❌ FATAL: user_v9.session is INVALID ---")
             return
 
         me = await u_cli.get_me()
