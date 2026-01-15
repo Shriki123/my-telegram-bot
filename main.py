@@ -3,17 +3,14 @@ from telethon import TelegramClient, events
 from flask import Flask
 from threading import Thread
 
-# --- שרת Flask למניעת כיבוי על ידי Render ---
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Affiliate Bot Status: Running"
+def home(): return "Bot is Online"
 
 def run_flask():
-    # Render מחייב האזנה לפורט שהם נותנים
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-# --- נתוני גישה ---
 API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8414998973:AAGis-q2XbatL-Y3vL8OHABCfQ10MJi5EWU"
@@ -25,12 +22,9 @@ ALI_APP_KEY = "524232"
 ALI_SECRET = "kEF3VJgjkz2pgfZ8t6rTroUD0TgCKeye"
 ALI_TRACKING_ID = "TelegramBot"
 
-# --- יצירת הלקוחות ---
-# user_v9: מסתמך על הקובץ שהעלית לגיט (חייב להיות תקין!)
+# --- שינוי ל-v4 כדי לעקוף את הקבצים התקולים ב-Render ---
 u_cli = TelegramClient("user_v9", API_ID, API_HASH)
-
-# bot_session_v3: שם חדש - הבוט ייצור את הקובץ הזה אוטומטית ברגע שתריץ את הקוד!
-b_cli = TelegramClient("bot_session_v3", API_ID, API_HASH)
+b_cli = TelegramClient("bot_session_v4", API_ID, API_HASH)
 
 def convert_ali_link(url: str):
     try:
@@ -53,13 +47,11 @@ async def handler(event):
     links = re.findall(r's\.click\.aliexpress\.com/e/[A-Za-z0-9_]+', text)
     if not links: return
     
-    print(f"🎯 Processing {len(links)} link(s)...")
+    print(f"🎯 נלכדו {len(links)} קישורים")
     new_text = text
     for link in set(links):
         aff = convert_ali_link(link)
-        if aff: 
-            new_text = new_text.replace(link, aff)
-            print(f"✅ Converted: {aff}")
+        if aff: new_text = new_text.replace(link, aff)
     
     try:
         if event.message.media:
@@ -68,32 +60,25 @@ async def handler(event):
             if os.path.exists(path): os.remove(path)
         else:
             await b_cli.send_message(DESTINATION_ID, new_text)
-        print("🚀 Message sent to channel!")
+        print("🚀 פוסט נשלח!")
     except Exception as e:
-        print(f"❌ Forward error: {e}")
+        print(f"❌ שגיאת שליחה: {e}")
 
 async def start_services():
-    print("--- 🟢 STARTING BOT SERVICES ---")
-    
-    # הפעלת שרת Flask ברקע
+    print("--- 🟢 STARTING BOT SERVICES (v4) ---")
     Thread(target=run_flask, daemon=True).start()
     
     try:
-        # 1. חיבור הבוט (ייצור קובץ חדש אוטומטית)
+        # הפעלה נקייה עם הטוקן
         await b_cli.start(bot_token=BOT_TOKEN)
-        
-        # 2. חיבור המשתמש (מסתמך על הקובץ שהעלית)
         await u_cli.connect()
         
-        # 3. בדיקה אם קובץ המשתמש תקין
         if not await u_cli.is_user_authorized():
-            print("--- ❌ FATAL ERROR: Session file 'user_v9.session' is INVALID! ---")
-            print("Action: Delete user_v9.session from PC, generate a NEW one, and upload to GitHub.")
+            print("--- ❌ FATAL ERROR: user_v9.session is INVALID ---")
             return
 
         me = await u_cli.get_me()
         print(f"--- ✅ SUCCESS: Connected as {me.first_name} ---")
-        print("--- 👂 Listening for AliExpress links... ---")
         await u_cli.run_until_disconnected()
         
     except Exception as e:
