@@ -1,6 +1,6 @@
 import asyncio, os, re, requests, hashlib, time
 from telethon import TelegramClient, events
-from telethon.sessions import MemorySession # הוספתי הפעלה מהזיכרון בלבד
+from telethon.sessions import MemorySession 
 from flask import Flask
 from threading import Thread
 
@@ -26,7 +26,7 @@ ALI_TRACKING_ID = "TelegramBot"
 # --- המשתמש משתמש בקובץ הקיים ---
 u_cli = TelegramClient("user_v9", API_ID, API_HASH)
 
-# --- הבוט יעבוד מהזיכרון בלבד (בלי קבצים שיכולים לפוג) ---
+# --- הבוט יעבוד מהזיכרון בלבד - פותר את שגיאת ה-Token Expired ---
 b_cli = TelegramClient(MemorySession(), API_ID, API_HASH)
 
 def convert_ali_link(url: str):
