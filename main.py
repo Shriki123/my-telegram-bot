@@ -29,8 +29,7 @@ ALI_TRACKING_ID = "TelegramBot"
 # user_v9: מסתמך על הקובץ שהעלית לגיט (חייב להיות תקין!)
 u_cli = TelegramClient("user_v9", API_ID, API_HASH)
 
-# bot_session_v3: שיניתי את השם ל-v3 כדי לפתור את שגיאת ה-Token Expired
-# הבוט ייצור לעצמו קובץ חדש אוטומטית בעלייה
+# bot_session_v3: שם חדש - הבוט ייצור את הקובץ הזה אוטומטית ברגע שתריץ את הקוד!
 b_cli = TelegramClient("bot_session_v3", API_ID, API_HASH)
 
 def convert_ali_link(url: str):
@@ -80,7 +79,7 @@ async def start_services():
     Thread(target=run_flask, daemon=True).start()
     
     try:
-        # 1. חיבור הבוט (שם סשן חדש ימנע התנגשויות)
+        # 1. חיבור הבוט (ייצור קובץ חדש אוטומטית)
         await b_cli.start(bot_token=BOT_TOKEN)
         
         # 2. חיבור המשתמש (מסתמך על הקובץ שהעלית)
