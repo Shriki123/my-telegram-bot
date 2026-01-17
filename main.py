@@ -16,9 +16,9 @@ API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8474416257:AAFVkVA16QL-j3AX9E42OPteAku4RZSYMpU"
 
-# רשימת ערוצי המקור (כולל הערוץ החדש שהוספת)
+# רשימת ערוצי המקור
 SOURCE_IDS = [-1003548239072, -1003197498066, -1002215703445, -1003156359003]
-# ערוץ היעד היחיד לכולם
+# ערוץ היעד
 DESTINATION_ID = -1003406117560
 
 ALI_APP_KEY = "524232"
@@ -53,7 +53,13 @@ async def handler(event):
     new_text = text
     for link in set(links):
         aff = convert_ali_link(link)
-        if aff: new_text = new_text.replace(link, aff)
+        if aff:
+            new_text = new_text.replace(link, aff)
+    
+    # --- התיקון לכפילות הקישורים ---
+    # השורה הזו מוודא שלא יהיה פעמיים https:// ברצף
+    new_text = new_text.replace("https://https://", "https://")
+    # -------------------------------
     
     try:
         if event.message.media:
