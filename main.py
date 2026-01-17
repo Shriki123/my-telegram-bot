@@ -6,7 +6,7 @@ from threading import Thread
 # --- שרת Flask ---
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Bot is Online - Clean Links Version"
+def home(): return "Bot is Online - Bold Links Version"
 
 def run_flask():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
@@ -54,9 +54,11 @@ async def handler(event):
     for link in set(links):
         aff = convert_ali_link(link)
         if aff:
-            new_text = new_text.replace(link, aff)
+            # כאן אנחנו מחליפים את הקישור המקורי בקישור המומר כשהוא מודגש
+            bold_aff = f"**{aff}**"
+            new_text = new_text.replace(link, bold_aff)
     
-    # --- תיקון כפילויות של פרוטוקול הקישור (http/https) ---
+    # --- תיקון כפילויות של פרוטוקול הקישור (מתבצע גם על טקסט מודגש) ---
     new_text = new_text.replace("https://https://", "https://")
     new_text = new_text.replace("https://http://", "https://")
     new_text = new_text.replace("http://https://", "https://")
@@ -70,12 +72,12 @@ async def handler(event):
             if os.path.exists(path): os.remove(path)
         else:
             await b_cli.send_message(DESTINATION_ID, new_text)
-        print("🚀 פוסט נשלח בהצלחה!")
+        print("🚀 פוסט נשלח עם קישור מודגש!")
     except Exception as e:
         print(f"❌ שגיאת שליחה: {e}")
 
 async def start_services():
-    print("--- 🟢 STARTING BOT SERVICES (CLEAN LINKS VERSION) ---")
+    print("--- 🟢 STARTING BOT SERVICES (BOLD LINKS VERSION) ---")
     Thread(target=run_flask, daemon=True).start()
     try:
         await b_cli.start(bot_token=BOT_TOKEN)
