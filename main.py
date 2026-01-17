@@ -6,7 +6,7 @@ from threading import Thread
 # --- שרת Flask ---
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Bot is Online - All sources to one destination"
+def home(): return "Bot is Online - Clean Links Version"
 
 def run_flask():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
@@ -56,10 +56,12 @@ async def handler(event):
         if aff:
             new_text = new_text.replace(link, aff)
     
-    # --- התיקון לכפילות הקישורים ---
-    # השורה הזו מוודא שלא יהיה פעמיים https:// ברצף
+    # --- תיקון כפילויות של פרוטוקול הקישור (http/https) ---
     new_text = new_text.replace("https://https://", "https://")
-    # -------------------------------
+    new_text = new_text.replace("https://http://", "https://")
+    new_text = new_text.replace("http://https://", "https://")
+    new_text = new_text.replace("http://http://", "http://")
+    # -----------------------------------------------------
     
     try:
         if event.message.media:
@@ -73,7 +75,7 @@ async def handler(event):
         print(f"❌ שגיאת שליחה: {e}")
 
 async def start_services():
-    print("--- 🟢 STARTING BOT SERVICES (UPDATED SOURCES) ---")
+    print("--- 🟢 STARTING BOT SERVICES (CLEAN LINKS VERSION) ---")
     Thread(target=run_flask, daemon=True).start()
     try:
         await b_cli.start(bot_token=BOT_TOKEN)
