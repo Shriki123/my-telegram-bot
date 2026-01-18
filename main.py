@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot is Online - FIXED"
+    return "Bot is Online - 5 SOURCES"
 
 def run_flask():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
@@ -18,11 +18,13 @@ API_ID = 33305115
 API_HASH = "b3d96cbe0190406947efc8a0da83b81c"
 BOT_TOKEN = "8474416257:AAFVkVA16QL-j3AX9E42OPteAku4RZSYMpU"
 
+# רשימת ערוצי המקור המעודכנת שלך (5 ערוצים)
 SOURCE_IDS = [
-    -1003548239072,
-    -1003197498066,
-    -1002215703445,
-    -1003156359003
+    -1003156359003, # מציאות סודיות מעליאקספרס
+    -1003197498066, # דילים סודיים בעליאקספרס
+    -1002713839619, # צייד המציאות
+    -1003548239072, # בדיקת בוט
+    -1002215703445  # אלי אקספרס דילים 2026 (החדש)
 ]
 
 DESTINATION_ID = -1003406117560
@@ -76,6 +78,7 @@ async def handler(event):
     # ניקוי כפילויות http מראש
     text = re.sub(r'(https?://)+', 'https://', text)
 
+    # מציאת קישורי אליאקספרס
     links = re.findall(r'https://s\.click\.aliexpress\.com/e/[A-Za-z0-9_]+', text)
     if not links:
         return
@@ -87,7 +90,7 @@ async def handler(event):
         if aff:
             text = text.replace(link, aff)
 
-    # הדגשת כל הטקסט
+    # הדגשת כל הטקסט ב-HTML
     final_text = f"<b>{text}</b>"
 
     try:
@@ -115,7 +118,7 @@ async def handler(event):
 
 # ================= Main =================
 async def main():
-    print("🟢 Starting services...")
+    print("🟢 Starting services with 5 sources...")
     Thread(target=run_flask, daemon=True).start()
 
     await b_cli.start(bot_token=BOT_TOKEN)
