@@ -6,7 +6,7 @@ from threading import Thread
 # ================= Flask =================
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Bot is Online - Active Listening"
+def home(): return "Bot is Online - Clean & Bold"
 
 def run_flask():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
@@ -28,10 +28,8 @@ b_cli = TelegramClient("bot_final_v1", API_ID, API_HASH)
 
 def convert_ali_link(url: str):
     try:
-        # ניקוי יסודי של הקישור לפני המרה
-        url = re.sub(r'https?://https?://', 'https://', url)
-        url = url.strip().replace("**", "")
-        
+        # ניקוי הקישור לפני המרה (הסרת כוכביות אם נדבקו)
+        url = url.replace("*", "").strip()
         params = {
             "method": "aliexpress.affiliate.link.generate",
             "app_key": ALI_APP_KEY, "tracking_id": ALI_TRACKING_ID,
@@ -45,27 +43,35 @@ def convert_ali_link(url: str):
         return res["aliexpress_affiliate_link_generate_response"]["resp_result"]["result"]["promotion_links"]["promotion_link"][0]["promotion_link"]
     except: return None
 
-# שימוש ב-NewMessage וגם ב-MessageEdited ליתר ביטחון
 @u_cli.on(events.NewMessage(chats=SOURCE_IDS))
 async def handler(event):
-    # חילוץ טקסט מכל סוג הודעה (טקסט או מדיה)
+    # שליפת טקסט גולמי
     text = event.message.text or event.message.caption or ""
     
-    # חיפוש קישורים - Regex גמיש לכל וריאציה
-    links = re.findall(r'(?:https?://)?s\.click\.aliexpress\.com/e/[A-Za-z0-9_]+', text)
+    # מציאת קישורים (כולל כאלו שמוקפים בכוכביות)
+    links = re.findall(r'(?:\*+)?(?:https?://)?s\.click\.aliexpress\.com/e/[A-Za-z0-9_]+(?:\*+)?', text)
     if not links: return
 
-    print(f"🎯 נלכדו {len(links)} קישורים מערוץ: {event.chat_id}")
+    print(f"🎯 נלכדו {len(links)} קישורים. מנקה וממיר...")
     new_text = text
     
-    for link in set(links):
-        aff = convert_ali_link(link)
+    for link_item in set(links):
+        # מנקים את הקישור שנמצא מכוכביות כדי להמיר אותו
+        clean_link = link_item.replace("*", "").strip()
+        aff = convert_ali_link(clean_link)
+        
         if aff:
-            new_text = new_text.replace(link, aff)
+            # מחליפים את כל הקישור הישן (כולל הכוכביות שלו) בקישור החדש
+            new_text = new_text.replace(link_item, aff)
 
-    # ניקוי כפילויות ועיצוב HTML
+    # --- ניקוי סופי של כל הכוכביות המיותרות מהטקסט ---
+    new_text = new_text.replace("*", "")
+    
+    # --- תיקון כפילויות https ---
     new_text = re.sub(r'(https?://){2,}', 'https://', new_text)
-    final_text = f"<b>{new_text}</b>"
+    
+    # --- הדגשת כל הטקסט ב-HTML ---
+    final_text = f"<b>{new_text.strip()}</b>"
 
     try:
         if event.message.media:
@@ -74,27 +80,16 @@ async def handler(event):
             if os.path.exists(path): os.remove(path)
         else:
             await b_cli.send_message(DESTINATION_ID, final_text, parse_mode="html")
-        print("🚀 פוסט הועבר בהצלחה לערוץ היעד")
+        print("🚀 פוסט נקי ומודגש נשלח!")
     except Exception as e:
         print(f"❌ שגיאת שליחה: {e}")
 
 async def main():
-    print("--- 🟢 הבוט מתחיל לעבוד ---")
+    print("--- 🟢 הבוט עלה לאוויר ---")
     Thread(target=run_flask, daemon=True).start()
-    
     await b_cli.start(bot_token=BOT_TOKEN)
     await u_cli.start()
-    
-    # בדיקה אם החשבון באמת רואה את הערוצים
-    print("🔍 בודק חיבור לערוצי המקור...")
-    for chat_id in SOURCE_IDS:
-        try:
-            entity = await u_cli.get_entity(chat_id)
-            print(f"✅ מחובר לערוץ: {entity.title}")
-        except:
-            print(f"⚠️ אזהרה: לא מצליח לגשת לערוץ {chat_id}. וודא שהצטרפת אליו!")
-
-    print("🚀 הבוט מאזין עכשיו לכל 5 הערוצים!")
+    print("✅ מאזין לכל הערוצים ללא כוכביות!")
     await u_cli.run_until_disconnected()
 
 if __name__ == "__main__":
